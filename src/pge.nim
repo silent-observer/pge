@@ -1,16 +1,16 @@
 # This is just an example to get you started. A typical binary package
 # uses this file as the main entry point of the application.
 
-import nimprof
-import expressions, formula, treegenerator, trie, ppq, varpro, matrix
+#import nimprof
+import expressions, formula, treegenerator, trie, ppq, varpro, matrix, variabledata
 import random, math, times, std/monotimes
 import strformat
 
 const VarCount = 2
 
-proc generateData(): (seq[seq[Number]], Vector) =
+proc generateData(): (VariableData, Vector) =
   const N = 100
-  result[0] = newSeqOfCap[seq[Number]](N)
+  result[0] = initVariableData(VarCount)
   result[1] = vector(N)
   for i in 0..<N:
     let x = rand(-3.0..3.0).Number
@@ -26,7 +26,7 @@ var front: ParetoFront
 var startTime: Monotime
 var functionsFit = 0
 
-proc handleTree(e: Expression, data: (seq[seq[Number]], Vector)) =
+proc handleTree(e: Expression, data: (VariableData, Vector)) =
   let s = e.serialized()
   if s in exprSet: return
 

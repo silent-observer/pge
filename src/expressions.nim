@@ -4,7 +4,7 @@ from strutils import join
 import strformat
 import tables, deques
 import smallset
-import matrix
+import matrix, variabledata
 
 export smallset, Number
 
@@ -108,7 +108,7 @@ func nested*(exprs: varargs[Expression]): Expression =
 func `$`*(e: Expression): string
 
 func eval*(e: Expression,
-    vars: seq[Number],
+    vars: VariableSlice,
     params: Vector,
     paramIndex: var int): Number =
   # debugEcho e
@@ -156,7 +156,7 @@ func eval*(e: Expression,
   result = e.lastValue
 
 func evalDerivs*(e: Expression,
-    vars: seq[Number],
+    vars: VariableSlice,
     params: Vector,
     paramIndex: var int,
     result: var Vector,

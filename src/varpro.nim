@@ -1,16 +1,15 @@
-import matrix
+import matrix, variabledata
 import expressions, formula, paramgenerator
 import sugar
 from fenv import epsilon
 from math import sum, isNaN, exp
 #import nimprof
-import times, std/monotimes
 from algorithm import fill
 from sequtils import map, toSeq
 #from macros import expandMacros
 
 proc fillData(f: LinearFormula,
-    vars: seq[seq[Number]],
+    vars: VariableData,
     nlParams, y: Vector,
     n, varCount, p, pl: int,
     jacobian: var Matrix,
@@ -134,7 +133,7 @@ proc fillData(f: LinearFormula,
   # debugEcho "jacobian = ", jacobian
 
 proc evalOnly(f: LinearFormula,
-    vars: seq[seq[Number]],
+    vars: VariableData,
     nlParams, y: Vector,
     n, varCount, p, pl: int, linearParams: var Vector): Vector =
   var phi = matrix(n, pl)
@@ -222,11 +221,11 @@ proc evalOnly(f: LinearFormula,
 #     result[i] = num / a[i, i]
 
 proc fitParams(f: LinearFormula,
-    vars: seq[seq[Number]],
+    vars: VariableData,
     y: Vector,
     startParams: Vector):
     tuple[linearParams, nonlinearParams: Vector, error: Number] =
-  let (n, varCount) = (vars.len, vars[0].len)
+  let (n, varCount) = (vars.rows, vars.varCount)
   let p = startParams.len
   let pl = f.terms.len + 1
 
@@ -268,25 +267,26 @@ proc fitParams(f: LinearFormula,
     # echo delta
     # echo delta
     # echo params, " ", err
+    const GravityEnable = false
+    when GravityEnable:
+      const hStep = 0.1
 
-    const hStep = 0.1
+      var paramsAfterStep = params + hStep * delta
+      var cAfterStep: Vector
+      let fAfterStep = f.evalOnly(vars, paramsAfterStep, y, n, varCount, p, pl, cAfterStep)
+      if fAfterStep.len == 0:
+        return (
+          linearParams: vector(0), 
+          nonlinearParams: vector(0),
+          error: Inf
+        )
+      
+      let kVec = (2.0 / hStep) * ((1.0 / hStep) * (fAfterStep - fVals) - jacobian * delta)
+      let accel = -jjTriangular.choleskySolve(jacobian ^* kVec)
 
-    var paramsAfterStep = params + hStep * delta
-    var cAfterStep: Vector
-    let fAfterStep = f.evalOnly(vars, paramsAfterStep, y, n, varCount, p, pl, cAfterStep)
-    if fAfterStep.len == 0:
-      return (
-        linearParams: vector(0), 
-        nonlinearParams: vector(0),
-        error: Inf
-      )
-    
-    let kVec = (2.0 / hStep) * ((1.0 / hStep) * (fAfterStep - fVals) - jacobian * delta)
-    let accel = -jjTriangular.choleskySolve(jacobian ^* kVec)
-
-    const alpha = 0.75
-    if 4.0 * dot(accel, accel) / dot(delta, delta) <= alpha * alpha:
-      delta += 0.5 * accel
+      const alpha = 0.75
+      if 4.0 * dot(accel, accel) / dot(delta, delta) <= alpha * alpha:
+        delta += 0.5 * accel
     # debugEcho delta
     # echo abs(delta).max()
     if absMax(delta) < 1e-10: break
@@ -320,11 +320,11 @@ proc fitParams(f: LinearFormula,
         inc step
   (linearParams: linearParams, nonlinearParams: params, error: err)
 
-proc fitParams*(f: LinearFormula, vars: seq[seq[Number]], y: Vector):
+proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector):
     tuple[linearParams, nonlinearParams: Vector, error: Number] =
   let paramCount = f.nonlinearParams.sum()
   if paramCount == 0:
-    let (n, varCount) = (vars.len, vars[0].len)
+    let (n, varCount) = (vars.rows, vars.varCount)
     let pl = f.terms.len + 1
     let fVals = f.evalOnly(vars, vector(0), y,
       n, varCount, 0, pl, result.linearParams)
@@ -348,7 +348,7 @@ proc fitParams*(f: LinearFormula, vars: seq[seq[Number]], y: Vector):
 if isMainModule:
   # disableProfiling()
   let x = @[-2.0, -1.0, 0.0, 1.0, 2.0]
-  let vars = @[@[-2.0], @[-1.0], @[0.0], @[1.0], @[2.0]]
+  let vars = toVariableData(@[@[-2.0], @[-1.0], @[0.0], @[1.0], @[2.0]])
   let y = x.map(x => exp(1 * x) + exp(-1 * x)).vector
   echo "x = ", x
   echo "vars = ", vars
