@@ -1,25 +1,23 @@
 # This is just an example to get you started. A typical binary package
 # uses this file as the main entry point of the application.
 
-import nimprof 
-import arraymancer
-import expressions, formula, treegenerator, trie, ppq, varpro
+import nimprof
+import expressions, formula, treegenerator, trie, ppq, varpro, matrix
 import random, math, times, std/monotimes
 import strformat
 
 const VarCount = 2
 
-proc generateData(): (Tensor[Number], Tensor[Number]) =
+proc generateData(): (seq[seq[Number]], Vector) =
   const N = 100
-  result[0] = newTensorUninit[Number](N, VarCount)
-  result[1] = newTensorUninit[Number](N)
+  result[0] = newSeqOfCap[seq[Number]](N)
+  result[1] = vector(N)
   for i in 0..<N:
     let x = rand(-3.0..3.0).Number
     let y = rand(-3.0..3.0).Number
     let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
-    #let f = exp(x) - 0.5 * exp(-0.5 * x)
-    result[0][i,0] = x
-    result[0][i,1] = y
+    # let f = exp(x) - 0.5 * exp(-0.5 * x)
+    result[0].add @[x, y]
     result[1][i] = f
 
 var exprSet = newTrie[TotalKinds + VarCount]()
@@ -28,7 +26,7 @@ var front: ParetoFront
 var startTime: Monotime
 var functionsFit = 0
 
-proc handleTree(e: Expression, data: (Tensor, Tensor)) =
+proc handleTree(e: Expression, data: (seq[seq[Number]], Vector)) =
   let s = e.serialized()
   if s in exprSet: return
 
@@ -39,11 +37,13 @@ proc handleTree(e: Expression, data: (Tensor, Tensor)) =
 
   # echo t.linearParams
   # echo t.nonlinearParams
-  let text = f.toString(t.linearParams, t.nonlinearParams)
+  let text =
+    if t.error > 1e10: $f
+    else: f.toString(t.linearParams, t.nonlinearParams)
   let comp = s.complexity()
   inc functionsFit
 
-  if t.error < 10e-6:
+  if t.error < 1e-6:
     echo ""
     echo ""
     echo "!!! Found solution (very small error) !!!"
@@ -127,5 +127,3 @@ when isMainModule:
     
     if i mod 25 == 24:
       checkSuddenDrop()
-
-

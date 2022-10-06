@@ -6,7 +6,7 @@ import tables, deques
 import smallset
 import matrix
 
-export smallset
+export smallset, Number
 
 type
   ExprKind* {.pure.} = enum
@@ -105,10 +105,13 @@ func nested*(exprs: varargs[Expression]): Expression =
     exprs[i].children.add exprs[i+1]
   result = exprs[0]
 
+func `$`*(e: Expression): string
+
 func eval*(e: Expression,
     vars: seq[Number],
-    params: seq[Number],
+    params: Vector,
     paramIndex: var int): Number =
+  # debugEcho e
   case e.kind:
   of Variable:
     e.lastValue = vars[e.varIndex]
@@ -154,9 +157,9 @@ func eval*(e: Expression,
 
 func evalDerivs*(e: Expression,
     vars: seq[Number],
-    params: seq[Number],
+    params: Vector,
     paramIndex: var int,
-    result: var seq[Number],
+    result: var Vector,
     currentDeriv: Number = 1) =
   template evalDerivs(e: Expression, deriv: Number): untyped =
       e.evalDerivs(vars, params, paramIndex, result, currentDeriv * deriv)
@@ -173,10 +176,12 @@ func evalDerivs*(e: Expression,
   of Product:
     let thisParam = if not e.constDisabled: params[paramIndex] else: 1
     if not e.constDisabled:
-      result[paramIndex] += currentDeriv * e.lastValue / thisParam
+      if abs(thisParam) > 1e-10:
+        result[paramIndex] += currentDeriv * e.lastValue / thisParam
       inc paramIndex
     for i, child in e.children:
-      let newDeriv = (if abs(child.lastValue) < 1e-5:
+      let newDeriv = (
+        if abs(child.lastValue) < 1e-5:
           var d = thisParam
           for j, otherChild in e.children:
             if i != j:
@@ -188,7 +193,10 @@ func evalDerivs*(e: Expression,
       child.evalDerivs(newDeriv)
     
   of IntPower:
-    e.children[0].evalDerivs(e.power.Number * e.lastValue / x)
+    if abs(x) < 1e-10:
+      e.children[0].evalDerivs(0)
+    else:
+      e.children[0].evalDerivs(e.power.Number * e.lastValue / x)
   of Inverse:
     e.children[0].evalDerivs(-e.lastValue.pow(2))
   of Exp:
@@ -236,7 +244,7 @@ func `$`*(e: Expression): string =
   var paramIndex = 0
   e.toString(paramIndex)
 
-func toString*(e: Expression, params: seq[Number], paramIndex: var int): string =
+func toString*(e: Expression, params: Vector, paramIndex: var int): string =
   template childStr: untyped = e.children[0].toString(params, paramIndex)
 
   case e.kind:
@@ -263,18 +271,20 @@ func toString*(e: Expression, params: seq[Number], paramIndex: var int): string 
     result = fmt"{nameTable[e.kind]}({childStr})"
 
 func copy*(e: Expression): Expression =
-  {.cast(uncheckedAssign).}:
-    new(result)
-    result.kind = e.kind
-    case e.kind:
-      of ExprKind.Variable: result.varIndex = e.varIndex
-      of Sum, Product: result.constDisabled = e.constDisabled
-      of IntPower: result.power = e.power
-      else: discard
-    if e.kind in {Sum, Product}:
-      result.children = initSmallSet[Expression](equivalenceCmp)
-    else:
-      result.children = initSmallSetWithNoCmp[Expression]()
+  #{.cast(uncheckedAssign).}:
+  result = Expression(kind: e.kind)
+#  result.kind = e.kind
+  case result.kind:
+    of ExprKind.Variable: result.varIndex = e.varIndex
+    of Sum, Product: result.constDisabled = e.constDisabled
+    of IntPower: result.power = e.power
+    else: discard
+  
+  if result.kind in {Sum, Product}:
+    result.children = initSmallSet[Expression](equivalenceCmp)
+  else:
+    result.children = initSmallSetWithNoCmp[Expression]()
+  
   for child in e.children:
     result.children.add child.copy()
   # debugEcho e, " -> ", result
@@ -317,7 +327,7 @@ func complexity*(e: SerializedExpr): int =
       i.inc
       result += e[i]
     elif e[i] in int(Inverse)..int(Acos):
-      result += 3
+      result += 5
     i.inc
 
 func copyAndReplace*(e, pattern, replacement: Expression): Expression =

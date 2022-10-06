@@ -1,5 +1,5 @@
 import expressions
-import arraymancer
+import matrix
 import strformat
 
 type LinearFormula* = object
@@ -12,7 +12,6 @@ func linearize*(e: Expression): LinearFormula =
   assert e.kind == Sum, "Linearized expression must be a sum of products"
   for term in e.children:
     assert term.kind == Product, "Linearized expression must be a sum of products"
-    # debugEcho term
     let newTerm = term.copy()
     newTerm.constDisabled = true
     result.terms.add newTerm
@@ -36,10 +35,9 @@ func linearize*(e: Expression): LinearFormula =
 #     term.evalDerivs(vars, nonlinearParams, paramIndex, derivs[i, _])
 #     result += linearParams[i] * v
 
-func toString*(f: LinearFormula, linearParams, nonlinearParams: Tensor[Number]): string =
+func toString*(f: LinearFormula, linearParams, nonlinearParams: Vector): string =
   var paramIndex = 0
-  let nlParams = if nonlinearParams.rank == 0: @[]
-    else: nonlinearParams.toSeq1D()
   for i, term in f.terms:
-    result &= fmt"{linearParams[i]:.4f}" & " * " & term.toString(nlParams, paramIndex) & " + "
+    result &= fmt"{linearParams[i]:.4f}" & " * " & 
+      term.toString(nonlinearParams, paramIndex) & " + "
   result &= fmt"{linearParams[f.terms.len]:.4f}"
