@@ -5,6 +5,7 @@ author        = "silent-observer"
 description   = "Prioritized Grammar Evaluation curve fitter (symbolic regression)"
 license       = "MIT"
 srcDir        = "src"
+binDir        = "bin"
 bin           = @["pge"]
 
 

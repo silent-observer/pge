@@ -13,6 +13,7 @@ func initSmallSet*[T](cmp: proc(a, b: T): int {.noSideEffect.}): SmallSet[T] =
 
 func `[]`*[T](s: SmallSet[T], i: SmallSetIndex): T {.inline.} = s.data[i]
 func len*(s: SmallSet): int {.inline.} = s.data.len
+func toSeq*[T](s: SmallSet[T]): seq[T] {.inline.} = s.data
 
 func addIndex*[T](s: var SmallSet[T], x: T): SmallSetIndex =
   if s.data.len == 0:

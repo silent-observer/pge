@@ -1,4 +1,4 @@
-varpro
-pge
+bin/*
 *.txt
 callgrind.*
+.vscode/*

@@ -5,6 +5,7 @@ import strformat
 import tables, deques
 import smallset
 import matrix, variabledata
+import sugar
 
 export smallset, Number
 
@@ -270,8 +271,7 @@ func toString*(e: Expression, params: Vector, paramIndex: var int): string =
       Asin: "asin", Acos: "acos"}.toTable
     result = fmt"{nameTable[e.kind]}({childStr})"
 
-func copy*(e: Expression): Expression =
-  #{.cast(uncheckedAssign).}:
+template copyMap*(input: Expression, f: untyped): untyped =
   result = Expression(kind: e.kind)
 #  result.kind = e.kind
   case result.kind:
@@ -286,7 +286,10 @@ func copy*(e: Expression): Expression =
     result.children = initSmallSetWithNoCmp[Expression]()
   
   for child in e.children:
-    result.children.add child.copy()
+    result.children.add f(child)
+
+func copy*(e: Expression): Expression {.inline.} =
+  e.copyMap(copy)
   # debugEcho e, " -> ", result
 
 func paramCount*(e: Expression): int =
@@ -330,21 +333,28 @@ func complexity*(e: SerializedExpr): int =
       result += 5
     i.inc
 
-func copyAndReplace*(e, pattern, replacement: Expression): Expression =
-  if e == pattern:
-    return replacement
+func copyAndReplace*(e, pattern, replacement: Expression): Expression {.inline.} =
+  func f(e: Expression): Expression =
+    if e == pattern:
+      return replacement
+    e.copyMap(f)
+  f(e)
+
+# func copyAndReplace*(e, pattern, replacement: Expression): Expression =
+#   if e == pattern:
+#     return replacement
   
-  result = Expression(
-    kind: e.kind,
-    children: initSmallSet[Expression](equivalenceCmp)
-  )
-  case e.kind:
-    of Variable: result.varIndex = e.varIndex
-    of Sum, Product: result.constDisabled = e.constDisabled
-    of IntPower: result.power = e.power
-    else: discard
-  for child in e.children:
-    result.children.add child.copyAndReplace(pattern, replacement)
+#   result = Expression(
+#     kind: e.kind,
+#     children: initSmallSet[Expression](equivalenceCmp)
+#   )
+#   case e.kind:
+#     of Variable: result.varIndex = e.varIndex
+#     of Sum, Product: result.constDisabled = e.constDisabled
+#     of IntPower: result.power = e.power
+#     else: discard
+#   for child in e.children:
+#     result.children.add child.copyAndReplace(pattern, replacement)
 
 iterator nodes*(e: Expression): Expression =
   var stack = newSeq[(Expression, int)]()

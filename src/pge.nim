@@ -3,6 +3,7 @@
 
 #import nimprof
 import expressions, formula, treegenerator, trie, ppq, varpro, matrix, variabledata
+# import simplifier
 import random, math, times, std/monotimes
 import strformat
 
