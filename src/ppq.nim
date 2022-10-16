@@ -1,9 +1,10 @@
-import expressions
+import formula
+from matrix import Number
 import heapqueue
 
 type
   PpqNode* = object
-    tree*: Expression
+    tree*: LinearFormula
     error*: Number
     complexity*: int
 
@@ -28,7 +29,7 @@ const
   QueueSize = 4
 
 func add*(ppq: var ParetoPriorityQueue,
-    tree: Expression,
+    tree: LinearFormula,
     error: Number,
     complexity: int) =
   let n = PpqNode(tree: tree, error: error, complexity: complexity)

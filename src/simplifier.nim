@@ -1,4 +1,4 @@
-import expressions
+import expressions, formula
 
 func fixIntPowers(e: Expression): Expression =
   if e.kind != Product: return e
@@ -29,3 +29,12 @@ func simplify*(e: Expression): Expression =
     # debugEcho result.children
     result = result.simplifyOne()
   f(e)
+
+func simplify*(f: LinearFormula): LinearFormula =
+  result = initLinearFormula()
+  for term in f.terms:
+    let e = term.e.simplify()
+    result.terms.add TermData(
+      e: e,
+      nonlinearParams: e.paramCount
+    )

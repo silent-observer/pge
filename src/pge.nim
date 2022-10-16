@@ -3,7 +3,7 @@
 
 #import nimprof
 import expressions, formula, treegenerator, trie, ppq, varpro, matrix, variabledata
-# import simplifier
+import simplifier
 import random, math, times, std/monotimes
 import strformat
 
@@ -27,13 +27,13 @@ var front: ParetoFront
 var startTime: Monotime
 var functionsFit = 0
 
-proc handleTree(e: Expression, data: (VariableData, Vector)) =
-  let s = e.serialized()
+proc handleTree(f: LinearFormula, data: (VariableData, Vector)) =
+  let s = f.serialized()
   if s in exprSet: return
 
-  echo "> ", e
+  echo "> ", f
 
-  let f = e.linearize()
+  #let f = e.linearize()
   let t = f.fitParams(data[0], data[1])
 
   # echo t.linearParams
@@ -58,7 +58,7 @@ proc handleTree(e: Expression, data: (VariableData, Vector)) =
   
   exprSet.add s
   front.add text, t.error, comp
-  queue.add e, t.error, comp
+  queue.add f, t.error, comp
   #echo " -> ", log10(t.error)
 
 proc checkSuddenDrop() =
@@ -108,11 +108,10 @@ when isMainModule:
   }
 
   for i in 0..<VarCount:
-    let e = nested(
-      initBigExpr(Sum),
-      initBigExpr(Product),
-      initVariable(i)
-    )
+    let e =
+      initBigExpr(Product, constDisabled=true).withChildren(
+        initVariable(i)
+      ).initLinearFormula()
     e.handleTree(data)
   
   for i in 0..<1000:
@@ -123,8 +122,8 @@ when isMainModule:
     echo fmt"Complexity: {n.complexity}"
     echo ""
 
-    for tree in n.tree.generateTrees(basis, VarCount):
-      tree.handleTree(data)
+    for tree in n.tree.generateFormulas(basis, VarCount):
+      tree.simplify().handleTree(data)
     
     if i mod 25 == 24:
       checkSuddenDrop()

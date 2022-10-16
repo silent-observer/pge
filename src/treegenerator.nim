@@ -1,4 +1,5 @@
 import expressions
+import formula
 from sequtils import repeat
 
 type
@@ -92,15 +93,16 @@ func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int): s
   else:
     if node.kind in {Sum, Product}:
       var newAllowed = allowed
-      for child in node.children:
-        case child.kind
-        of ExprKind.Inverse:
-          newAllowed.excl BasisFunction.Inverse
-        of ExprKind.Exp:
-          newAllowed.excl BasisFunction.Exp
-        of ExprKind.Sqrt:
-          newAllowed.excl BasisFunction.Sqrt
-        else: discard
+      if node.kind == Product:
+        for child in node.children:
+          case child.kind
+          of ExprKind.Inverse:
+            newAllowed.excl BasisFunction.Inverse
+          of ExprKind.Exp:
+            newAllowed.excl BasisFunction.Exp
+          of ExprKind.Sqrt:
+            newAllowed.excl BasisFunction.Sqrt
+          else: discard
       for child in node.children:
         result.add e.generateTrees(child, basis, newAllowed, varCount)
     
@@ -110,3 +112,37 @@ func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int): s
 
 func generateTrees*(e: Expression, basis: Basis, varCount: int): seq[Expression] {.inline.} =
   generateTrees(e, e, basis, basis, varCount)
+
+func generateFormulas*(f: LinearFormula, basis: Basis, varCount: int): seq[LinearFormula] =
+  var vars = true.repeat(varCount)
+  for i, term in f.terms:
+    if term.e.kind == Product and
+        term.e.children.len == 1 and
+        term.e.children[0].kind == Variable:
+      vars[term.e.children[0].varIndex] = false
+    for modifiedTerm in term.e.generateTrees(basis, varCount):
+      var newFormula = initLinearFormula()
+      for j, term2 in f.terms:
+        if i != j: 
+          newFormula.terms.add TermData(
+            e: term2.e.copy(),
+            nonlinearParams: term2.nonlinearParams
+          )
+        else:
+          newFormula.terms.add TermData(
+            e: modifiedTerm,
+            nonlinearParams: modifiedTerm.paramCount
+          )
+      
+      result.add newFormula
+  
+  for v in 0..<varCount:
+    if vars[v]:
+      var copy = f.copy()
+      copy.terms.add TermData(
+        e: initBigExpr(Product, constDisabled=true)
+            .withChildren(initVariable(v)),
+        nonlinearParams: 0
+      )
+      result.add copy
+

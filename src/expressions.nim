@@ -1,5 +1,4 @@
 import math
-from sugar import collect
 from strutils import join
 import strformat
 import tables, deques

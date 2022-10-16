@@ -24,7 +24,7 @@ proc fillData(f: LinearFormula,
     for k in 0..<pl-1:
       # debugEcho vars[i, _].squeeze(0)
       let startParamIndex = paramIndex
-      let val = f.terms[k].eval(vars[i], nlParams, paramIndex)
+      let val = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
       if isNaN(val) or abs(val) > 1e10:
         # debugEcho "NaNs!"
         return Inf
@@ -33,7 +33,7 @@ proc fillData(f: LinearFormula,
       # debugEcho val
       # debugEcho phi[i, k]
       paramIndex = startParamIndex
-      f.terms[k].evalDerivs(vars[i], nlParams, paramIndex, derivsRow)
+      f.terms[k].e.evalDerivs(vars[i], nlParams, paramIndex, derivsRow)
     # debugEcho derivsRow
     derivs.setRow(derivsRow, i)
     
@@ -90,7 +90,7 @@ proc fillData(f: LinearFormula,
   var cs = vector(p)
   var paramIndex = 0
   for k in 0..<pl-1:
-    let paramCount = f.nonlinearParams[k]
+    let paramCount = f.terms[k].nonlinearParams
     if paramCount == 0: continue
     for s in paramIndex..<paramIndex+paramCount:
       kFun[s] = k
@@ -143,7 +143,7 @@ proc evalOnly(f: LinearFormula,
     for k in 0..<pl-1:
       # debugEcho vars[i, _].squeeze(0)
       # let startParamIndex = paramIndex
-      let val = f.terms[k].eval(vars[i], nlParams, paramIndex)
+      let val = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
       if isNaN(val) or abs(val) > 1e10:
         # debugEcho "NaNs!"
         return vector(0)
@@ -322,7 +322,10 @@ proc fitParams(f: LinearFormula,
 
 proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector):
     tuple[linearParams, nonlinearParams: Vector, error: Number] =
-  let paramCount = f.nonlinearParams.sum()
+  var paramCount = 0
+  for term in f.terms:
+    paramCount += term.nonlinearParams
+
   if paramCount == 0:
     let (n, varCount) = (vars.rows, vars.varCount)
     let pl = f.terms.len + 1
@@ -354,18 +357,18 @@ if isMainModule:
   echo "vars = ", vars
   echo "y = ", y
 
-  let f = initBigExpr(Sum).withChildren(
-    initBigExpr(Product).nested(
+  let f = initLinearFormula(
+    initBigExpr(Product, constDisabled=true).nested(
       initUnaryExpr(ExprKind.Exp),
       initBigExpr(Product),
       initVariable(0)
     ),
-    initBigExpr(Product).nested(
+    initBigExpr(Product, constDisabled=true).nested(
       initUnaryExpr(ExprKind.Exp),
       initBigExpr(Product),
       initVariable(0)
     )
-  ).linearize()
+  )
   echo f
 
   # setSamplingFrequency(20000)
