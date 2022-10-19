@@ -16,7 +16,14 @@ func `$`*(f: LinearFormula): string {.inline.} =
       term.e.toString(paramIndex) & " + "
   result &= fmt"a{f.terms.len}"
 
-func termDataCmp*(a, b: TermData): int = equivalenceCmp(a.e, b.e)
+func termDataCmp*(a, b: TermData): int = 
+  result = equivalenceCmp(a.e, b.e)
+  # if result < 0:
+  #   debugEcho "    ", a.e.toStructureString, " < ", b.e.toStructureString
+  # elif result == 0:
+  #   debugEcho "    ", a.e.toStructureString, " = ", b.e.toStructureString
+  # else:
+  #   debugEcho "    ", a.e.toStructureString, " > ", b.e.toStructureString
 
 func initLinearFormula*(terms: varargs[Expression]): LinearFormula =
   result.terms = initSmallSet[TermData](termDataCmp)

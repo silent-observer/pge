@@ -1,5 +1,6 @@
 import expressions
 import formula
+import options
 from sequtils import repeat
 
 type
@@ -68,11 +69,15 @@ func applyProductionRules(e: Expression, allowed: Basis, varCount: int): seq[Exp
         else:
           result.add copy.withChildren(initVariable(v))
   elif e.kind == ExprKind.IntPower:
-    let copy = e.copy()
-    inc copy.power
-    result.add copy
+    let copy1 = e.copy()
+    inc copy1.power
+    result.add copy1
+    if e.power > 2:
+      let copy2 = e.copy()
+      dec copy2.power
+      result.add copy2
 
-func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int): seq[Expression] =
+func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int, canDelete: bool): seq[Expression] =
   if node.kind in UnaryKinds + {ExprKind.IntPower}:
     var newAllowed = allowed
     if node.kind == ExprKind.IntPower:
@@ -89,7 +94,7 @@ func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int): s
       else:
         newAllowed.incl BasisFunction.Inverse
     newAllowed = newAllowed * basis
-    result = e.generateTrees(node.children[0], basis, newAllowed, varCount)
+    result = e.generateTrees(node.children[0], basis, newAllowed, varCount, canDelete=false)
   else:
     if node.kind in {Sum, Product}:
       var newAllowed = allowed
@@ -103,15 +108,33 @@ func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int): s
           of ExprKind.Sqrt:
             newAllowed.excl BasisFunction.Sqrt
           else: discard
+      let newCanDelete = node.children.len > 1
       for child in node.children:
-        result.add e.generateTrees(child, basis, newAllowed, varCount)
+        result.add e.generateTrees(child, basis, newAllowed, varCount, newCanDelete)
     
     let subTrees = node.applyProductionRules(allowed, varCount)
     for subTree in subTrees:
       result.add e.copyAndReplace(node, subTree)
+    
+    if canDelete:
+      result.add e.copyAndDelete(node)
 
 func generateTrees*(e: Expression, basis: Basis, varCount: int): seq[Expression] {.inline.} =
-  generateTrees(e, e, basis, basis, varCount)
+  generateTrees(e, e, basis, basis, varCount, false)
+
+proc copyAndReplace(f: LinearFormula, i: int, modifiedTerm: Option[Expression]): LinearFormula =
+  result = initLinearFormula()
+  for j, term2 in f.terms:
+    if i != j: 
+      result.terms.add TermData(
+        e: term2.e.copy(),
+        nonlinearParams: term2.nonlinearParams
+      )
+    elif modifiedTerm.isSome:
+      result.terms.add TermData(
+        e: modifiedTerm.unsafeGet,
+        nonlinearParams: modifiedTerm.unsafeGet.paramCount
+      )
 
 func generateFormulas*(f: LinearFormula, basis: Basis, varCount: int): seq[LinearFormula] =
   var vars = true.repeat(varCount)
@@ -121,20 +144,8 @@ func generateFormulas*(f: LinearFormula, basis: Basis, varCount: int): seq[Linea
         term.e.children[0].kind == Variable:
       vars[term.e.children[0].varIndex] = false
     for modifiedTerm in term.e.generateTrees(basis, varCount):
-      var newFormula = initLinearFormula()
-      for j, term2 in f.terms:
-        if i != j: 
-          newFormula.terms.add TermData(
-            e: term2.e.copy(),
-            nonlinearParams: term2.nonlinearParams
-          )
-        else:
-          newFormula.terms.add TermData(
-            e: modifiedTerm,
-            nonlinearParams: modifiedTerm.paramCount
-          )
-      
-      result.add newFormula
+      result.add f.copyAndReplace(i, modifiedTerm.some())
+    result.add f.copyAndReplace(i, none(Expression))
   
   for v in 0..<varCount:
     if vars[v]:

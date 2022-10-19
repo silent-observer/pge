@@ -4,7 +4,7 @@ import strformat
 import tables, deques
 import smallset
 import matrix, variabledata
-import sugar
+import sugar, options
 
 export smallset, Number
 
@@ -50,25 +50,38 @@ func structureCmp*(a, b: Expression): int =
   of Variable: return cmp(a.varIndex, b.varIndex)
   of Sum, Product:
     for i in 0..<a.children.len:
-      let c = cmp(a.children[i], b.children[i])
+      let c = structureCmp(a.children[i], b.children[i])
       if c != 0: return c
+    return 0
   of IntPower:
     if a.power != b.power: return cmp(a.power, b.power)
-    return cmp(a.children[0], b.children[0])
+    return structureCmp(a.children[0], b.children[0])
   else:
-    return cmp(a.children[0], b.children[0])
+    return structureCmp(a.children[0], b.children[0])
 
 func equivalenceCmp*(a, b: Expression): int =
-  if a.kind == Variable and b.kind == Variable:
-    cmp(a.varIndex, b.varIndex)
-  elif a.kind == Variable or b.kind == Variable:
-    cmp(a.kind, b.kind)
+  if a.kind != b.kind:
+    return cmp(a.kind, b.kind)
+  if a.children.len != b.children.len:
+    return cmp(a.children.len, b.children.len)
+
+  case a.kind:
+  of Variable: return cmp(a.varIndex, b.varIndex)
+  of Sum, Product:
+    # let c1 = cmp(a.constDisabled, b.constDisabled)
+    # if c1 != 0: return c1
+    for i in 0..<a.children.len:
+      let c2 = equivalenceCmp(a.children[i], b.children[i])
+      if c2 != 0: return c2
+    
+    return 0
+  of IntPower:
+    if a.power != b.power: return cmp(a.power, b.power)
+    return equivalenceCmp(a.children[0], b.children[0])
   else:
-    let c = structureCmp(a, b)
-    if c == 0:
-      cmp(unsafeAddr a[], unsafeAddr b[])
-    else:
-      c
+    let c = equivalenceCmp(a.children[0], b.children[0])
+    if c != 0: return c
+    else: return cmp(a, b)
 
 func initVariable*(index: int): Expression {.inline.} = Expression(
   kind: Variable,
@@ -240,6 +253,30 @@ func toString*(e: Expression, paramIndex: var int): string =
       Asin: "asin", Acos: "acos"}.toTable
     result = fmt"{nameTable[e.kind]}({childStr})"
 
+func toStructureString*(e: Expression): string =
+  template childStr: untyped = e.children[0].toStructureString()
+
+  case e.kind:
+  of Variable: result = fmt"x{e.varIndex}"
+  of Sum, Product:
+    let name = if e.constDisabled: $e.kind else: $e.kind & "C"
+    result = fmt"{name}("
+    
+    let children = collect(newSeqOfCap(e.children.len)):
+      for child in e.children:
+        child.toStructureString()
+    result &= children.join(", ") & ")"
+  of IntPower:
+    result = childStr & " ^ " & $e.power
+  of Inverse:
+    result = fmt"1/({childStr})"
+  of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos:
+    const nameTable = {
+      Exp: "exp", Ln: "ln", Sqrt: "sqrt",
+      Sin: "sin", Cos: "cos",
+      Asin: "asin", Acos: "acos"}.toTable
+    result = fmt"{nameTable[e.kind]}({childStr})"
+
 func `$`*(e: Expression): string =
   var paramIndex = 0
   e.toString(paramIndex)
@@ -270,8 +307,14 @@ func toString*(e: Expression, params: Vector, paramIndex: var int): string =
       Asin: "asin", Acos: "acos"}.toTable
     result = fmt"{nameTable[e.kind]}({childStr})"
 
-template copyMap*(input: Expression, f: untyped): untyped =
-  result = Expression(kind: e.kind)
+template copyMap*(input: Expression, f: untyped, result: untyped): untyped =
+  let children = (
+    if input.kind in {Sum, Product}:
+      initSmallSet[Expression](equivalenceCmp)
+    else:
+      initSmallSetWithNoCmp[Expression]()
+    )
+  result = Expression(kind: e.kind, children: children)
 #  result.kind = e.kind
   case result.kind:
     of ExprKind.Variable: result.varIndex = e.varIndex
@@ -279,16 +322,11 @@ template copyMap*(input: Expression, f: untyped): untyped =
     of IntPower: result.power = e.power
     else: discard
   
-  if result.kind in {Sum, Product}:
-    result.children = initSmallSet[Expression](equivalenceCmp)
-  else:
-    result.children = initSmallSetWithNoCmp[Expression]()
-  
   for child in e.children:
     result.children.add f(child)
 
 func copy*(e: Expression): Expression {.inline.} =
-  e.copyMap(copy)
+  e.copyMap(copy, result)
   # debugEcho e, " -> ", result
 
 func paramCount*(e: Expression): int =
@@ -329,15 +367,24 @@ func complexity*(e: SerializedExpr): int =
       i.inc
       result += e[i]
     elif e[i] in int(Inverse)..int(Acos):
-      result += 5
+      result += 3
     i.inc
 
 func copyAndReplace*(e, pattern, replacement: Expression): Expression {.inline.} =
   func f(e: Expression): Expression =
     if e == pattern:
       return replacement
-    e.copyMap(f)
+    e.copyMap(f, result)
   f(e)
+
+func copyAndDelete*(e, pattern: Expression): Expression {.inline.} =
+  func f(e: Expression): Option[Expression] =
+    if e == pattern:
+      return none(Expression)
+    var someExpr: Expression
+    e.copyMap(f, someExpr)
+    result = some(someExpr)
+  f(e).get()
 
 # func copyAndReplace*(e, pattern, replacement: Expression): Expression =
 #   if e == pattern:

@@ -25,7 +25,7 @@ func simplifyOne(e: Expression): Expression {.inline.} =
 
 func simplify*(e: Expression): Expression =
   func f(e: Expression): Expression =
-    e.copyMap(f)
+    e.copyMap(f, result)
     # debugEcho result.children
     result = result.simplifyOne()
   f(e)

@@ -14,10 +14,11 @@ proc generateData(): (VariableData, Vector) =
   result[0] = initVariableData(VarCount)
   result[1] = vector(N)
   for i in 0..<N:
-    let x = rand(-3.0..3.0).Number
-    let y = rand(-3.0..3.0).Number
-    let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
-    # let f = exp(x) - 0.5 * exp(-0.5 * x)
+    let x = rand(1.0..4.0).Number
+    let y = rand(1.0..4.0).Number
+    #let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
+    #let f = exp(x) - 0.5 * exp(-0.5 * x)
+    let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
     result[0].add @[x, y]
     result[1][i] = f
 
@@ -29,7 +30,10 @@ var functionsFit = 0
 
 proc handleTree(f: LinearFormula, data: (VariableData, Vector)) =
   let s = f.serialized()
-  if s in exprSet: return
+
+  if s in exprSet:
+    echo "X ", f
+    return
 
   echo "> ", f
 
@@ -104,15 +108,12 @@ when isMainModule:
   startTime = getMonoTime()
   const basis = {
     BasisFunction.Exp,
+    BasisFunction.Inverse,
     BasisFunction.IntPower
   }
 
-  for i in 0..<VarCount:
-    let e =
-      initBigExpr(Product, constDisabled=true).withChildren(
-        initVariable(i)
-      ).initLinearFormula()
-    e.handleTree(data)
+  let emptyFormula = initLinearFormula()
+  emptyFormula.handleTree(data)
   
   for i in 0..<1000:
     let n = queue.pop()
@@ -120,10 +121,10 @@ when isMainModule:
     echo fmt"Error: {n.error:.3e}"
     echo fmt"Log error: {log10(n.error):.2f}"
     echo fmt"Complexity: {n.complexity}"
-    echo ""
 
     for tree in n.tree.generateFormulas(basis, VarCount):
       tree.simplify().handleTree(data)
+    echo ""
     
     if i mod 25 == 24:
       checkSuddenDrop()

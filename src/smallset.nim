@@ -1,4 +1,5 @@
 import algorithm
+import options
 
 type 
   SmallSet*[T] = object
@@ -27,6 +28,9 @@ func addIndex*[T](s: var SmallSet[T], x: T): SmallSetIndex =
     result = i
 func add*[T](s: var SmallSet[T], x: T) {.inline.} =
   discard s.addIndex(x)
+func add*[T](s: var SmallSet[T], x: Option[T]) {.inline.} =
+  if x.isSome:
+    discard s.addIndex(x.unsafeGet)
 
 func delete*[T](s: var SmallSet[T], i: SmallSetIndex) {.inline.} =
   s.data.delete(i)
