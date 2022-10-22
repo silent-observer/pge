@@ -122,8 +122,14 @@ func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int, ca
 func generateTrees*(e: Expression, basis: Basis, varCount: int): seq[Expression] {.inline.} =
   generateTrees(e, e, basis, basis, varCount, false)
 
+proc nextId(): int =
+  var idCounter {.global.} = 2
+  result = idCounter
+  inc idCounter
+
 proc copyAndReplace(f: LinearFormula, i: int, modifiedTerm: Option[Expression]): LinearFormula =
   result = initLinearFormula()
+  result.id = nextId()
   for j, term2 in f.terms:
     if i != j: 
       result.terms.add TermData(
@@ -136,7 +142,7 @@ proc copyAndReplace(f: LinearFormula, i: int, modifiedTerm: Option[Expression]):
         nonlinearParams: modifiedTerm.unsafeGet.paramCount
       )
 
-func generateFormulas*(f: LinearFormula, basis: Basis, varCount: int): seq[LinearFormula] =
+proc generateFormulas*(f: LinearFormula, basis: Basis, varCount: int): seq[LinearFormula] =
   var vars = true.repeat(varCount)
   for i, term in f.terms:
     if term.e.kind == Product and
@@ -155,5 +161,6 @@ func generateFormulas*(f: LinearFormula, basis: Basis, varCount: int): seq[Linea
             .withChildren(initVariable(v)),
         nonlinearParams: 0
       )
+      copy.id = nextId()
       result.add copy
 

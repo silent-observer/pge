@@ -320,7 +320,7 @@ proc fitParams(f: LinearFormula,
         inc step
   (linearParams: linearParams, nonlinearParams: params, error: err)
 
-proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector):
+proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, howMany = 30):
     tuple[linearParams, nonlinearParams: Vector, error: Number] =
   var paramCount = 0
   for term in f.terms:
@@ -339,7 +339,7 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector):
   else:
     result.error = Inf
     var counter = 0
-    for params in generateInitialParams(paramCount):
+    for params in generateInitialParams(paramCount, howMany):
       # debugEcho "!", counter, " ", params
       inc counter
       let t = f.fitParams(vars, y, params)

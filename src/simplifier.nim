@@ -32,6 +32,7 @@ func simplify*(e: Expression): Expression =
 
 func simplify*(f: LinearFormula): LinearFormula =
   result = initLinearFormula()
+  result.id = f.id
   for term in f.terms:
     let e = term.e.simplify()
     result.terms.add TermData(

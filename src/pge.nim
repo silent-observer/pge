@@ -6,39 +6,74 @@ import expressions, formula, treegenerator, trie, ppq, varpro, matrix, variabled
 import simplifier
 import random, math, times, std/monotimes
 import strformat
+import streams
+import tables, sequtils, algorithm
 
 const VarCount = 2
 
-proc generateData(): (VariableData, Vector) =
+type Data = object
+  trainX, approxX: VariableData
+  trainY, approxY: Vector
+
+const PeekCoefficient = 0.1
+
+proc generateData(): Data =
   const N = 100
-  result[0] = initVariableData(VarCount)
-  result[1] = vector(N)
+  const PeekN = int(PeekCoefficient * N.float)
+  result.trainX = initVariableData(VarCount)
+  result.approxX = initVariableData(VarCount)
+  result.trainY = vector(N)
+  result.approxY = vector(PeekN)
   for i in 0..<N:
     let x = rand(1.0..4.0).Number
     let y = rand(1.0..4.0).Number
     #let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
     #let f = exp(x) - 0.5 * exp(-0.5 * x)
     let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
-    result[0].add @[x, y]
-    result[1][i] = f
+    result.trainX.add @[x, y]
+    result.trainY[i] = f
+    if result.approxX.rows < PeekN:
+      result.approxY[result.approxX.rows] = f
+      result.approxX.add @[x, y]
 
 var exprSet = newTrie[TotalKinds + VarCount]()
-var queue: ParetoPriorityQueue
+var mainQueue, approxQueue: ParetoPriorityQueue
 var front: ParetoFront
 var startTime: Monotime
 var functionsFit = 0
 
-proc handleTree(f: LinearFormula, data: (VariableData, Vector)) =
+var treeState = initTable[int, string]()
+
+proc approxTree(f: LinearFormula, data: Data) =
   let s = f.serialized()
 
   if s in exprSet:
     echo "X ", f
+    treeState[f.id] = "#f1faee"
+    return
+  echo "A ", f
+  treeState[f.id] = "#3a86ff"
+
+  let t = f.fitParams(data.approxX, data.approxY, howMany=10)
+  let comp = s.complexity()
+  approxQueue.add f, t.error, comp
+
+let file = openFileStream("graph3.csv", fmWrite)
+let fileMeta = openFileStream("graph3meta.csv", fmWrite)
+
+proc handleTree(f: LinearFormula, data: Data) =
+  let s = f.serialized()
+
+  if s in exprSet:
+    echo "X ", f
+    treeState[f.id] = "#f1faee"
     return
 
   echo "> ", f
+  treeState[f.id] = "#4f772d"
 
   #let f = e.linearize()
-  let t = f.fitParams(data[0], data[1])
+  let t = f.fitParams(data.trainX, data.trainY)
 
   # echo t.linearParams
   # echo t.nonlinearParams
@@ -58,11 +93,17 @@ proc handleTree(f: LinearFormula, data: (VariableData, Vector)) =
     echo fmt"Complexity: {comp}"
     echo fmt"Functions evaluated: {functionsFit}"
     echo fmt"Total time: {getMonoTime() - startTime}"
+    file.close()
+
+    fileMeta.writeLine "id;node_color"
+    for t in treeState.pairs.toSeq().sorted():
+      fileMeta.writeLine t[0], ";", t[1]
+    fileMeta.close()
     quit 0
   
   exprSet.add s
   front.add text, t.error, comp
-  queue.add f, t.error, comp
+  mainQueue.add f, t.error, comp
   #echo " -> ", log10(t.error)
 
 proc checkSuddenDrop() =
@@ -115,16 +156,33 @@ when isMainModule:
   let emptyFormula = initLinearFormula()
   emptyFormula.handleTree(data)
   
-  for i in 0..<1000:
-    let n = queue.pop()
-    echo i, ": ", n.tree
-    echo fmt"Error: {n.error:.3e}"
-    echo fmt"Log error: {log10(n.error):.2f}"
-    echo fmt"Complexity: {n.complexity}"
+  file.writeLine "source;target"
+  block main:
+    #file.writeLine("Hello world")
+    #file.close()
 
-    for tree in n.tree.generateFormulas(basis, VarCount):
-      tree.simplify().handleTree(data)
-    echo ""
-    
-    if i mod 25 == 24:
-      checkSuddenDrop()
+    for i in 0..<1000:
+      let n = mainQueue.pop()
+      treeState[n.tree.id] = "#ffc300"
+      echo i, ": ", n.tree
+      echo fmt"Error: {n.error:.3e}"
+      echo fmt"Log error: {log10(n.error):.2f}"
+      echo fmt"Complexity: {n.complexity}"
+
+      for tree in n.tree.generateFormulas(basis, VarCount):
+        # tree.simplify().handleTree(data)
+        tree.simplify().approxTree(data)
+        file.writeLine(n.tree.id, ";", tree.id)
+      
+      const ApproxQueueCoefficient = 0.4
+      let totalQueueSize = mainQueue.len + approxQueue.len
+      let requiredMainQueue = ceil(totalQueueSize.float * ApproxQueueCoefficient).int
+      let toTake = requiredMainQueue - mainQueue.len
+      for _ in 0..<toTake:
+        let node = approxQueue.pop()
+        node.tree.handleTree(data)
+
+      echo ""
+      
+      if i mod 25 == 24:
+        checkSuddenDrop()

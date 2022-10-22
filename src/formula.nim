@@ -8,6 +8,7 @@ type TermData* = object
 
 type LinearFormula* = object
   terms*: SmallSet[TermData]
+  id*: int
 
 func `$`*(f: LinearFormula): string {.inline.} = 
   var paramIndex = 0
@@ -35,6 +36,7 @@ func initLinearFormula*(terms: varargs[Expression]): LinearFormula =
       e: newTerm,
       nonlinearParams: newTerm.paramCount
     )
+  result.id = 1
 
 
 # func linearize*(e: Expression): LinearFormula =
@@ -53,6 +55,7 @@ func copy*(f: LinearFormula): LinearFormula {.inline.} =
       e: term.e.copy(),
       nonlinearParams: term.nonlinearParams
     )
+  result.id = f.id
 
 func serialized*(f: LinearFormula): SerializedExpr =
   for i, term in f.terms:

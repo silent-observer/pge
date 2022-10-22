@@ -13,9 +13,9 @@ proc randomParams(r: var Rand, n: int): Vector =
   for i in 0..<n:
     result[i] = r.randomValue()
 
-iterator generateInitialParams*(n: int): Vector =
+iterator generateInitialParams*(n: int, howMany: int): Vector =
   yield repeat(Number(0), n).vector
   yield repeat(Number(1), n).vector
   var r = initRand(1234)
-  for i in 0..<30:
+  for i in 0..<howMany-2:
     yield r.randomParams(n)

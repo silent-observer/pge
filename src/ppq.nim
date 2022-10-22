@@ -15,6 +15,7 @@ type
   ParetoPriorityQueue* = object
     stacks: seq[PpqStack]
     queue: seq[PpqNode]
+    size: int
 
 type
   ParetoData = object
@@ -37,6 +38,7 @@ func add*(ppq: var ParetoPriorityQueue,
   if ppq.stacks.len <= index:
     ppq.stacks.setLen(index+1)
   ppq.stacks[index].push n
+  inc ppq.size
 
 func updateQueue(ppq: var ParetoPriorityQueue) =
   if ppq.queue.len != 0: return
@@ -51,7 +53,10 @@ func updateQueue(ppq: var ParetoPriorityQueue) =
 
 func pop*(ppq: var ParetoPriorityQueue): PpqNode {.inline.} =
   ppq.updateQueue()
+  dec ppq.size
   ppq.queue.pop()
+
+func len*(ppq: ParetoPriorityQueue): int {.inline.} = ppq.size
 
 func add*(pf: var ParetoFront,
     text: string,
