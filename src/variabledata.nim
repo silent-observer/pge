@@ -28,3 +28,5 @@ func `[]`*(d: VariableData, i: int): VariableSlice {.inline.} =
   VariableSlice(varCount: d.varCount, data: d.data, row: i)
 func `[]`*(slice: VariableSlice, i: int): Number {.inline.} =
   slice.data[slice.row * slice.varCount + i]
+func getAddr*(slice: VariableSlice): ptr Number {.inline.} =
+  unsafeAddr slice.data[slice.row * slice.varCount]
