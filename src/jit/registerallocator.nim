@@ -16,12 +16,19 @@ type Allocator = object
   memoryIndex: int
   inters: Table[int, CommandArgument]
 
+func bonusLifetime(c: Command, index: int): int =
+  if c.kind in {ckIntPower, ckInv} or
+     c.kind in {ckDiv, ckSub} and index == 1:
+    1
+  else:
+    0
+
 func findLifetimes(a: var Allocator, s: seq[Command]) =
   var counter = 0
   for c in s:
-    for arg in c.args:
+    for j, arg in c.args:
       if arg.kind == cakIntermediate:
-        a.interLifeEnds[arg.id] = counter
+        a.interLifeEnds[arg.id] = counter + bonusLifetime(c, j)
     inc counter
 
 func freeRegisters(a: var Allocator, counter: int) =
@@ -60,8 +67,8 @@ func allocate(a: var Allocator, s: var seq[Command], counter: var int) =
   var index = 0
   while index < s.len:
     template c: untyped = s[index]
-    if c.kind notin {ckIntPower, ckInv}:
-      a.freeRegisters(counter)
+    #if c.kind notin {ckIntPower, ckInv}:
+    a.freeRegisters(counter)
     for arg in c.args.mitems:
       if arg.kind == cakIntermediate:
         arg = a.inters[arg.id]
@@ -102,13 +109,12 @@ func fixMemoryArgs(s: var seq[Command]) =
   var index = 0
   while index < s.len:
     template c: untyped = s[index]
-    if c.kind in {ckAdd, ckMul, ckSub}:
+    if c.kind in {ckAdd, ckMul, ckSub, ckDiv}:
       let firstRegister = c.args[0].kind == cakRegister
       let secondRegister = c.args[1].kind == cakRegister
-      if firstRegister or secondRegister:
+      if (firstRegister or secondRegister) and c.kind in {ckAdd, ckMul}:
         if not firstRegister:
-          if c.kind != ckSub: # TODO: Fix this for ckSub and ckDiv
-            swap c.args[0], c.args[1]
+          swap c.args[0], c.args[1]
       else:
         s.insert(
           Command(kind: ckMov, args: @[c.args[0]], result: c.result),
@@ -123,8 +129,8 @@ func fixMemoryArgs(s: var seq[Command]) =
       let secondResult = c.args[1] == c.result
       if firstResult or secondResult:
         if not firstResult:
-          if c.kind != ckSub:
-            swap c.args[0], c.args[1]
+          assert c.kind in {ckAdd, ckMul}
+          swap c.args[0], c.args[1]
       else:
         s.insert(
           Command(kind: ckMov, args: @[c.args[0]], result: c.result),
@@ -220,23 +226,31 @@ func allocateOnlyEval*(p: Program): Program =
   result.derivatives.setLen 0
 
 when isMainModule:
-  let e = initBigExpr(Sum).withChildren(
-    initBigExpr(Product).withChildren(
-      initVariable(0)
-    ),
-    initBigExpr(Product).withChildren(
-      initVariable(1),
-      initUnaryExpr(Inverse).withChildren(
-        initBigExpr(Sum).withChildren(
-          initBigExpr(Product, constDisabled=true).withChildren(
-            initIntPower(2).withChildren(initVariable(0))
-          ),
-          initBigExpr(Product).withChildren(
-            initIntPower(2).withChildren(initVariable(1))
-          )
-        )
-      )
-    )
+  # let e = initBigExpr(Sum).withChildren(
+  #   initBigExpr(Product).withChildren(
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).withChildren(
+  #     initVariable(1),
+  #     initUnaryExpr(Inverse).withChildren(
+  #       initBigExpr(Sum).withChildren(
+  #         initBigExpr(Product, constDisabled=true).withChildren(
+  #           initIntPower(2).withChildren(initVariable(0))
+  #         ),
+  #         initBigExpr(Product).withChildren(
+  #           initIntPower(2).withChildren(initVariable(1))
+  #         )
+  #       )
+  #     )
+  #   )
+  # )
+  let e = nested(
+    initBigExpr(Sum),
+    initBigExpr(Product),
+    initUnaryExpr(Asin),
+    initBigExpr(Sum),
+    initBigExpr(Product),
+    initVariable(0)
   )
   echo e
 
