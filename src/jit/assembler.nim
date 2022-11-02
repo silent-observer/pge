@@ -6,8 +6,8 @@ when isMainModule:
   from strutils import toHex
 
 
-# ; void func(double* vars, double* params, double* derivs, double* result, double* consts)
-# ;                   rdi           rsi             rdx             rcx             r8/rax
+# ; void func(double* vars, double* params, double* derivs, double* result, void* rdata)
+# ;                   rdi           rsi             rdx             rcx           r8/rax
 # func:
 #     ; if memory used
 #     sub RSP, $MemorySize
@@ -27,9 +27,37 @@ type
   #Assembler = object
   AssembledCode = object
     prog*: seq[byte]
-    consts*: seq[float64]
+    data*: seq[byte]
 
 const ConstArrayStart: array[4, float64] = [-0.0, 0.0, 1.0, -1.0]
+
+proc absFunc(x: float64): float64 {.importc: "fabs", header: "<math.h>", cdecl.}
+proc expFunc(x: float64): float64 {.importc: "exp", header: "<math.h>", cdecl.}
+proc logFunc(x: float64): float64 {.importc: "log", header: "<math.h>", cdecl.}
+proc sqrtFunc(x: float64): float64 {.importc: "sqrt", header: "<math.h>", cdecl.}
+proc sinFunc(x: float64): float64 {.importc: "sin", header: "<math.h>", cdecl.}
+proc cosFunc(x: float64): float64 {.importc: "cos", header: "<math.h>", cdecl.}
+proc asinFunc(x: float64): float64 {.importc: "asin", header: "<math.h>", cdecl.}
+proc acosFunc(x: float64): float64 {.importc: "acos", header: "<math.h>", cdecl.}
+
+func add32Bit(s: var seq[byte], x: uint32) =
+  s.add [
+    byte(x and 0xFF),
+    byte((x shr 8) and 0xFF),
+    byte((x shr 16) and 0xFF),
+    byte((x shr 24) and 0xFF)
+  ]
+func add64Bit(s: var seq[byte], x: uint64) =
+  s.add [
+    byte(x and 0xFF),
+    byte((x shr 8) and 0xFF),
+    byte((x shr 16) and 0xFF),
+    byte((x shr 24) and 0xFF),
+    byte((x shr 32) and 0xFF),
+    byte((x shr 40) and 0xFF),
+    byte((x shr 48) and 0xFF),
+    byte((x shr 56) and 0xFF),
+  ]
 
 func calcModRM(reg, rm: CommandArgument): seq[byte] =
   assert reg.kind == cakRegister
@@ -55,11 +83,11 @@ func calcModRM(reg, rm: CommandArgument): seq[byte] =
   of cakZero, cakOne, cakMinusOne:
     result.add byte(0x40 or (r shl 3)) # ... r, [RAX + i*8]
     if rm.kind == cakZero:
-      result.add 8'u8
+      result.add 64'u8 + 8'u8
     elif rm.kind == cakOne:
-      result.add 16'u8
+      result.add 64'u8 + 16'u8
     elif rm.kind == cakMinusOne:
-      result.add 24'u8
+      result.add 64'u8 + 24'u8
   of cakConst:
     assert false, "Not supported yet"
   of cakIntermediate:
@@ -87,7 +115,8 @@ func assemble(c: Command, result: var seq[byte]) =
     if c.args[1] == MinusOne:
       result.add [0x66'u8, 0x0F, 0x57] # xorpd $0, -0.0
       assert c.args[0].kind == cakRegister
-      result.add byte(c.args[0].id shl 3)
+      result.add byte(0x40 or (c.args[0].id shl 3))
+      result.add 0x40'u8
     else:
       result.add [0xF2'u8, 0x0F, 0x59] # mulsd $0, $1r
       result.add calcModRM(c.args[0], c.args[1])
@@ -97,29 +126,52 @@ func assemble(c: Command, result: var seq[byte]) =
     result.add calcModRM(c.result, One)
     result.add [0xF2'u8, 0x0F, 0x5E] # divsd $r, $0
     result.add calcModRM(c.result, c.args[0])
-  of ckLabel, ckFuncCall, ckJump, ckJumpIfSmall, ckIntPower:
+  of ckDiv:
+    assert c.result == c.args[0]
+    result.add [0xF2'u8, 0x0F, 0x5E] # divsd $r, $0
+    result.add calcModRM(c.args[0], c.args[1])
+  of ckPush:
+    var offset = c.args.len.uint32 * 8
+    if offset mod 16 != 8:
+      offset += 8
+    result.add [0x48'u8, 0x81, 0xEC] # sub RSP, $args.len*8
+    result.add32Bit(offset)
+    for i, arg in c.args:
+      result.add [0xF2'u8, 0x0F, 0x11] # movsd [RSP+offset], $arg
+      result.add calcModRM(arg, CommandArgument(kind: cakMemory, id: i))
+  of ckPop:
+    for i, arg in c.args:
+      result.add [0xF2'u8, 0x0F, 0x10] # movsd $arg, [RSP+offset]
+      result.add calcModRM(arg, CommandArgument(kind: cakMemory, id: i))
+    var offset = c.args.len.uint32 * 8
+    if offset mod 16 != 8:
+      offset += 8
+    result.add [0x48'u8, 0x81, 0xC4] # add RSP, $args.len*8
+    result.add32Bit(offset)
+  of ckFuncCall:
+    assert c.result == c.args[0]
+    assert c.result.kind == cakRegister and c.result.id == 0
+    result.add [
+      0x50'u8, 0x51, 0x52, 0x56, 0x57, # push RAX, RCX, RDX, RSI, RDI
+      0xFF, 0x50 # mov RAX, $address
+    ]
+    case c.funcName:
+    of "abs": result.add 0x00'u8
+    of "exp": result.add 0x08'u8
+    of "log": result.add 0x10'u8
+    of "sqrt": result.add 0x18'u8
+    of "sin": result.add 0x20'u8
+    of "cos": result.add 0x28'u8
+    of "asin": result.add 0x30'u8
+    of "acos": result.add 0x38'u8
+    else: assert false, "No such function " & c.funcName
+    result.add [
+      0x5F'u8, 0x5E, 0x5A, 0x59, 0x58, # pop RAX, RCX, RDX, RSI, RDI
+    ]
+  of ckLabel, ckJump, ckJumpIfSmall, ckIntPower:
     assert false, "Not implemented yet"
-  of ckNop, ckDiv:
+  of ckNop:
     assert false
-
-func add32Bit(s: var seq[byte], x: uint32) =
-  s.add [
-    byte(x and 0xFF),
-    byte((x shr 8) and 0xFF),
-    byte((x shr 16) and 0xFF),
-    byte((x shr 24) and 0xFF)
-  ]
-func add64Bit(s: var seq[byte], x: uint64) =
-  s.add [
-    byte(x and 0xFF),
-    byte((x shr 8) and 0xFF),
-    byte((x shr 16) and 0xFF),
-    byte((x shr 24) and 0xFF),
-    byte((x shr 32) and 0xFF),
-    byte((x shr 40) and 0xFF),
-    byte((x shr 48) and 0xFF),
-    byte((x shr 56) and 0xFF),
-  ]
 
 
 func assemble*(p: Program): AssembledCode =
@@ -136,26 +188,47 @@ func assemble*(p: Program): AssembledCode =
     assemble(c, backwardCode)
 
   result.prog = prelude & forwardCode & backwardCode & Finale
-  result.consts = @ConstArrayStart
+  let consts = @ConstArrayStart
+  let funcs = [
+    cast[uint64](absFunc),
+    cast[uint64](expFunc),
+    cast[uint64](logFunc),
+    cast[uint64](sqrtFunc),
+    cast[uint64](sinFunc),
+    cast[uint64](cosFunc),
+    cast[uint64](asinFunc),
+    cast[uint64](acosFunc)
+  ]
+  for f in funcs:
+    result.data.add64Bit f
+  for c in consts:
+    result.data.add64Bit cast[uint64](c)
 
 when isMainModule:
-  let e = initBigExpr(Sum).withChildren(
-    initBigExpr(Product).withChildren(
-      initVariable(0)
-    ),
-    initBigExpr(Product).withChildren(
-      initVariable(1),
-      initUnaryExpr(Inverse).withChildren(
-        initBigExpr(Sum).withChildren(
-          initBigExpr(Product, constDisabled=true).withChildren(
-            initIntPower(2).withChildren(initVariable(0))
-          ),
-          initBigExpr(Product).withChildren(
-            initIntPower(2).withChildren(initVariable(1))
-          )
-        )
-      )
-    )
+  # let e = initBigExpr(Sum).withChildren(
+  #   initBigExpr(Product).withChildren(
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).withChildren(
+  #     initVariable(1),
+  #     initUnaryExpr(Inverse).withChildren(
+  #       initBigExpr(Sum).withChildren(
+  #         initBigExpr(Product, constDisabled=true).withChildren(
+  #           initIntPower(2).withChildren(initVariable(0))
+  #         ),
+  #         initBigExpr(Product).withChildren(
+  #           initIntPower(2).withChildren(initVariable(1))
+  #         )
+  #       )
+  #     )
+  #   )
+  # )
+  let e = initBigExpr(Sum).nested(
+    initBigExpr(Product),
+    initUnaryExpr(Asin),
+    initBigExpr(Sum),
+    initBigExpr(Product),
+    initVariable(0)
   )
   echo e
 
@@ -175,5 +248,5 @@ when isMainModule:
 
   let code = p3.assemble()
   for b in code.prog:
-    stdout.write("0x" & b.toHex() & ", ")
+    stdout.write("" & b.toHex() & " ")
   echo ""

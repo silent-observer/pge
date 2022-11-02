@@ -1,6 +1,7 @@
 import ir {.all.}
 import tables
 import optimizer
+from sugar import collect
 
 when isMainModule:
   import ../expressions
@@ -75,6 +76,10 @@ func allocate(a: var Allocator, s: var seq[Command], counter: var int) =
       elif arg.kind != cakZero and arg in a.registersTemporary:
         let i = a.registersTemporary.find(arg)
         arg = CommandArgument(kind: cakRegister, id: i)
+    if c.kind in {ckMov, ckPush, ckPop}:
+      inc index
+      continue
+
     if c.result.kind == cakIntermediate:
       let (newRegister, command) = a.allocateRegister()
       if command.kind != ckNop:
@@ -95,7 +100,22 @@ func allocate(a: var Allocator, s: var seq[Command], counter: var int) =
       )
       a.registersTemporary[newRegister.id] = c.result
       c.result = newRegister
-      inc index
+    
+    if c.kind == ckFuncCall:
+      let saveRegs = collect(newSeq):
+        for r in 0..<RegisterCount:
+          if a.registers[r] != NoVar and r != c.result.id:
+            CommandArgument(kind: cakRegister, id: r)
+      if saveRegs.len > 0:
+        s.insert(
+          Command(kind: ckPush, args: saveRegs, result: Zero),
+          index
+        )
+        inc index
+        s.insert(
+          Command(kind: ckPop, args: saveRegs, result: Zero),
+          index + 1
+        )
     inc index
     inc counter
 
@@ -140,6 +160,23 @@ func fixMemoryArgs(s: var seq[Command]) =
         if c.args[1] == c.args[0]:
           c.args[1] = c.result
         c.args[0] = c.result
+    elif c.kind == ckFuncCall:
+      if c.args[0].id != 0:
+        s.insert(
+          Command(kind: ckMov, args: c.args,
+            result: CommandArgument(kind: cakRegister, id: 0)),
+          index
+        )
+        inc index
+        c.args[0].id = 0
+      if c.result.id != 0:
+        s.insert(
+          Command(kind: ckMov, 
+            args: @[CommandArgument(kind: cakRegister, id: 0)],
+            result: c.result),
+          index + 1
+        )
+        c.result.id = 0
     # elif c.kind in {ckInv, ckFuncCall}:
     #   if c.args[0] != c.result:
     #     s.insert(
@@ -244,13 +281,19 @@ when isMainModule:
   #     )
   #   )
   # )
-  let e = nested(
-    initBigExpr(Sum),
-    initBigExpr(Product),
-    initUnaryExpr(Asin),
-    initBigExpr(Sum),
-    initBigExpr(Product),
-    initVariable(0)
+  let e = initBigExpr(Sum).withChildren(
+    initBigExpr(Product).nested(
+      initUnaryExpr(Ln),
+      initBigExpr(Sum),
+      initBigExpr(Product),
+      initVariable(0)
+    ),
+    initBigExpr(Product).nested(
+      initUnaryExpr(Ln),
+      initBigExpr(Sum),
+      initBigExpr(Product),
+      initVariable(1)
+    )
   )
   echo e
 
@@ -267,6 +310,6 @@ when isMainModule:
   echo p3
   echo ""
   echo ""
-  let p4 = p2.allocateOnlyEval()
-  echo p4
+  # let p4 = p2.allocateOnlyEval()
+  # echo p4
   #echo ir.derivatives

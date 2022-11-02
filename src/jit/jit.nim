@@ -4,12 +4,12 @@ import posix
 from strutils import toHex
 
 type
-  JitProcedure = proc(vars, params, derivs, result, consts: ptr float64) {.cdecl.}
+  JitProcedure = proc(vars, params, derivs, result: ptr float64, data: pointer) {.cdecl.}
   JitProgramObj = object
     codePage: pointer
     length: int
     evalProc, evalAllProc: JitProcedure
-    consts: seq[float64]
+    data: seq[byte]
     constsPtrShift: int
   JitProgram* = ref JitProgramObj
 
@@ -22,7 +22,7 @@ proc `=sink`*(dest: var JitProgramObj, src: JitProgramObj) =
   dest.codePage = src.codePage
   dest.length = src.length
   dest.evalProc = src.evalProc
-  dest.consts = src.consts
+  dest.data = src.data
 
 proc compile*(e: Expression): JitProgram =
   new(result)
@@ -35,9 +35,11 @@ proc compile*(e: Expression): JitProgram =
     codeOnlyEval = p3OnlyEval.assemble()
     totalCode = codeOnlyEval.prog & codeFull.prog
 
-  # for b in totalCode:
-  #   stdout.write("" & b.toHex() & " ")
-  # echo ""
+  echo p3Full
+
+  for b in totalCode:
+    stdout.write("" & b.toHex() & " ")
+  echo ""
 
   result.length = totalCode.len
   result.codePage = mmap(
@@ -53,14 +55,12 @@ proc compile*(e: Expression): JitProgram =
     cast[int](result.codePage) + codeOnlyEval.prog.len
   )
 
-  result.consts = newSeqOfCap[float64](codeFull.consts.len + 1)
-  result.consts.add codeFull.consts
-  if (cast[int](addr result.consts[0]) and 0xF) != 0:
-    result.consts.insert(0.0, 0)
-    result.constsPtrShift = 1
-  else:
-    result.constsPtrShift = 0
-  
+  result.data = newSeqOfCap[byte](codeFull.data.len + 16)
+  result.data.add codeFull.data
+  result.constsPtrShift = 0
+  while (cast[int](addr result.data[result.constsPtrShift]) and 0xF) != 0:
+    result.data.insert(0'u8, 0)
+    inc result.constsPtrShift
 
 proc evalAll*(j: JitProgram,
     vars: VariableSlice,
@@ -71,7 +71,7 @@ proc evalAll*(j: JitProgram,
     getAddr params,
     getAddr derivs,
     addr result,
-    unsafeAddr j.consts[j.constsPtrShift]
+    unsafeAddr j.data[j.constsPtrShift]
   )
 proc eval*(j: JitProgram,
     vars: VariableSlice,
@@ -81,35 +81,44 @@ proc eval*(j: JitProgram,
     getAddr params,
     nil,
     addr result,
-    unsafeAddr j.consts[j.constsPtrShift]
+    unsafeAddr j.data[j.constsPtrShift]
   )
 
 when isMainModule:
-  let e = initBigExpr(Sum).withChildren(
-    initBigExpr(Product).withChildren(
-      initVariable(0)
-    ),
-    initBigExpr(Product).withChildren(
-      initVariable(1),
-      initUnaryExpr(Inverse).withChildren(
-        initBigExpr(Sum).withChildren(
-          initBigExpr(Product, constDisabled=true).withChildren(
-            initIntPower(2).withChildren(initVariable(0))
-          ),
-          initBigExpr(Product).withChildren(
-            initIntPower(2).withChildren(initVariable(1))
-          )
-        )
-      )
-    )
+  # let e = initBigExpr(Sum).withChildren(
+  #   initBigExpr(Product).withChildren(
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).withChildren(
+  #     initVariable(1),
+  #     initUnaryExpr(Inverse).withChildren(
+  #       initBigExpr(Sum).withChildren(
+  #         initBigExpr(Product, constDisabled=true).withChildren(
+  #           initIntPower(2).withChildren(initVariable(0))
+  #         ),
+  #         initBigExpr(Product).withChildren(
+  #           initIntPower(2).withChildren(initVariable(1))
+  #         )
+  #       )
+  #     )
+  #   )
+  # )
+  let e = initBigExpr(Sum).nested(
+    initBigExpr(Product),
+    initUnaryExpr(Asin),
+    initBigExpr(Sum),
+    initBigExpr(Product),
+    initVariable(0)
   )
   
   let j = e.compile()
   let vars = toVariableData(@[
-    @[1.5, 2.0]
+    #@[1.5, 2.0]
+    @[0.5]
   ])
-  let params = vector(@[1.0, -1.0, 1.0, 0.1, 1.0])
-  var derivs = vector(5)
+  let params = #vector(@[1.0, -1.0, 1.0, 0.1, 1.0])
+    vector(@[1.0, 0.5, 0.0, 1.0])
+  var derivs = vector(4)
   let r = j.evalAll(vars[0], params, derivs)
   echo r
   echo derivs

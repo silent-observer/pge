@@ -1,4 +1,5 @@
 import ../expressions
+from strutils import join
 
 type
   CommandKind* = enum
@@ -14,6 +15,8 @@ type
     ckLabel
     ckJump
     ckJumpIfSmall
+    ckPush,
+    ckPop
   CommandArgumentKind* = enum
     cakVariable
     cakParameter
@@ -190,6 +193,10 @@ func `$`*(c: Command): string =
     result = $c.result & " <- " & c.funcName & "(" & $c.args[0] & ")"
   of ckMov:
     result = $c.result & " <- " & $c.args[0]
+  of ckPush:
+    result = "push " & c.args.join(", ")
+  of ckPop:
+    result = "pop " & c.args.join(", ")
 
 func `$`*(p: Program): string =
   result = "forward:\n"
