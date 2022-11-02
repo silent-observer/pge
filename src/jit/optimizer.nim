@@ -37,20 +37,21 @@ func optimizeMulAdd(
         let src =
           if c.args[0] == noOpVal: c.args[1]
           else: c.args[0]
-        c = Command(kind: ckNop)
+        c = Nop
         p.replaceAll(dest, src)
 
 func optimizeMulAdd(p: var Program) =
   p.forward.optimizeMulAdd(p)
   p.backward.optimizeMulAdd(p)
 
+func optimizeNop(s: seq[Command]): seq[Command] =
+  collect(newSeqOfCap(s.len)):
+    for c in s:
+      if c.kind != ckNop: c
+
 func optimizeNop(p: var Program) =
-  p.forward = collect(newSeqOfCap(p.forward.len)):
-    for c in p.forward:
-      if c.kind != ckNop: c
-  p.backward = collect(newSeqOfCap(p.backward.len)):
-    for c in p.backward:
-      if c.kind != ckNop: c
+  p.forward = p.forward.optimizeNop()
+  p.backward = p.backward.optimizeNop()
 
 func optimizeUnused(s: var seq[Command], used: var seq[int]) =
   for i in countdown(high(s), low(s)):
@@ -61,7 +62,7 @@ func optimizeUnused(s: var seq[Command], used: var seq[int]) =
           if arg.kind == cakIntermediate:
             used.add arg.id
       else:
-        c = Command(kind: ckNop)
+        c = Nop
 
 func optimizeUnused(p: var Program) =
   var used: seq[int]

@@ -12,9 +12,6 @@ type
     ckInv
     ckFuncCall
     ckIntPower
-    ckLabel
-    ckJump
-    ckJumpIfSmall
     ckPush,
     ckPop
   CommandArgumentKind* = enum
@@ -42,15 +39,12 @@ type
       c*: float64
     else:
       discard
-  Label* = int
   Command* = object
     case kind*: CommandKind
     of ckFuncCall:
       funcName*: string
     of ckIntPower:
       power*: int
-    of ckJump, ckJumpIfSmall, ckLabel:
-      label*: Label
     else:
       discard
     args*: seq[CommandArgument]
@@ -63,7 +57,6 @@ type
   IrConverter = object
     paramIndex: int
     nextIntermediate: int
-    nextLabel: Label
     derivatives: seq[CommandArgument]
 
 func `==`*(a, b: CommandArgument): bool =
@@ -83,10 +76,6 @@ func nextInter(c: var IrConverter): CommandArgument {.inline.} =
   result = CommandArgument(kind: cakIntermediate, id: c.nextIntermediate)
   inc c.nextIntermediate
 
-func nextL(c: var IrConverter): Label {.inline.} =
-  result = c.nextLabel
-  inc c.nextLabel
-
 func variable(i: int): CommandArgument {.inline.} =
   CommandArgument(kind: cakVariable, id: i)
 
@@ -99,11 +88,11 @@ const
   Zero = CommandArgument(kind: cakZero)
   One = CommandArgument(kind: cakOne)
   MinusOne = CommandArgument(kind: cakMinusOne)
+  Nop = Command(kind: ckNop)
 
 func initIrConverter(paramCount: int): IrConverter =
   result.paramIndex = 0
   result.nextIntermediate = 0
-  result.nextLabel = 0
   for i in 0..<paramCount:
     result.derivatives.add Zero
 
@@ -149,13 +138,6 @@ func intPower(c: var IrConverter,
   result = c.nextInter()
   s.add Command(kind: ckIntPower, args: @[source], result: result, power: power)
 
-func label(c: var IrConverter, s: var seq[Command], label: Label) {.inline.} =
-  s.add Command(kind: ckLabel, args: @[], result: Zero, label: label)
-func jump(c: var IrConverter, s: var seq[Command], label: Label) {.inline.} =
-  s.add Command(kind: ckLabel, args: @[], result: Zero, label: label)
-func jumpIfSmall(c: var IrConverter, s: var seq[Command], arg: CommandArgument, label: Label) {.inline.} =
-  s.add Command(kind: ckLabel, args: @[arg], result: Zero, label: label)
-
 func `$`*(a: CommandArgument): string =
   case a.kind:
   of cakVariable: "X" & $a.id
@@ -173,9 +155,6 @@ func `$`*(a: CommandArgument): string =
 func `$`*(c: Command): string =
   case c.kind:
   of ckNop: result = "nop"
-  of ckLabel: result = "label L" & $c.label
-  of ckJump: result = "jump L" & $c.label
-  of ckJumpIfSmall: result = "jump L" & $c.label & " if " & $c.args[0] & " is small"
   of ckAdd, ckSub, ckMul, ckDiv:
     let sign = (case c.kind:
       of ckAdd: " + "
@@ -258,36 +237,14 @@ func convert(c: var IrConverter, e: Expression,
     if e.children.len == 1:
       discard c.mul(result.backward, currentDeriv, param(paramIndex))
       result.backward[^1].result = childDerivs[0]
-    elif e.children.len == 2:
-      let derC = c.mul(result.backward, currentDeriv, param(paramIndex))
-      discard c.mul(result.backward, derC, childResults[1])
-      result.backward[^1].result = childDerivs[0]
-      discard c.mul(result.backward, derC, childResults[0])
-      result.backward[^1].result = childDerivs[1]
     else:
-      let rc = c.mul(result.backward, currentDeriv, r)
-      var zeroLabels: seq[Label]
-      var returnLabels: seq[Label]
+      let derC = c.mul(result.backward, currentDeriv, param(paramIndex))
       for i in 0..<e.children.len:
-        zeroLabels.add c.nextL()
-        c.jumpIfSmall(result.backward, childResults[i], zeroLabels[i])
-        discard c.divCommand(result.backward, rc, childResults[i])
-        result.backward[^1].result = childDerivs[i]
-        returnLabels.add c.nextL()
-        c.label(result.backward, returnLabels[i])
-      let endLabel = c.nextL()
-      c.jump(result.backward, endLabel)
-      for i in 0..<e.children.len:
-        c.label(result.backward, zeroLabels[i])
-        var deriv = rc
+        var deriv = derC
         for j in 0..<e.children.len:
           if i != j:
             deriv = c.mul(result.backward, deriv, childResults[j])
         result.backward[^1].result = childDerivs[i]
-        if i < e.children.len - 1:
-          c.jump(result.backward, returnLabels[i])
-      
-      c.label(result.backward, endLabel)
     result.backward.add childBackward
 
   of IntPower:

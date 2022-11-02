@@ -168,7 +168,7 @@ func assemble(c: Command, result: var seq[byte]) =
     result.add [
       0x5F'u8, 0x5E, 0x5A, 0x59, 0x58, # pop RAX, RCX, RDX, RSI, RDI
     ]
-  of ckLabel, ckJump, ckJumpIfSmall, ckIntPower:
+  of ckIntPower:
     assert false, "Not implemented yet"
   of ckNop:
     assert false
@@ -223,12 +223,24 @@ when isMainModule:
   #     )
   #   )
   # )
-  let e = initBigExpr(Sum).nested(
-    initBigExpr(Product),
-    initUnaryExpr(Asin),
-    initBigExpr(Sum),
-    initBigExpr(Product),
-    initVariable(0)
+  # let e = initBigExpr(Sum).nested(
+  #   initBigExpr(Product),
+  #   initUnaryExpr(Asin),
+  #   initBigExpr(Sum),
+  #   initBigExpr(Product),
+  #   initVariable(0)
+  # )
+  let e = initBigExpr(Product).withChildren(
+    initUnaryExpr(Sin).nested(
+      initBigExpr(Sum),
+      initBigExpr(Product),
+      initVariable(0)
+    ),
+    initUnaryExpr(Sin).nested(
+      initBigExpr(Sum),
+      initBigExpr(Product),
+      initVariable(1)
+    )
   )
   echo e
 
