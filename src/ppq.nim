@@ -23,7 +23,7 @@ type
     error*: Number
     complexity*: int
   ParetoFront* = object
-    front*: seq[ParetoData]
+    data: seq[ParetoData]
 
 const
   MinComplexity = 0
@@ -63,11 +63,17 @@ func add*(pf: var ParetoFront,
     error: Number,
     complexity: int) =
   let index = complexity - MinComplexity
-  if pf.front.len <= index:
-    pf.front.setLen(index+1)
-  if pf.front[index].text == "" or error < pf.front[index].error:
-    pf.front[index]  = ParetoData(
+  if pf.data.len <= index:
+    pf.data.setLen(index+1)
+  if pf.data[index].text == "" or error < pf.data[index].error:
+    pf.data[index]  = ParetoData(
       text: text,
       error: error,
       complexity: complexity
     )
+
+func front*(pf: ParetoFront): seq[ParetoData] =
+  result.add pf.data[0]
+  for x in pf.data[1..^1]:
+    if x.error < result[^1].error:
+      result.add x

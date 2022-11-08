@@ -77,6 +77,21 @@ func applyProductionRules(e: Expression, allowed: Basis, varCount: int): seq[Exp
       dec copy2.power
       result.add copy2
 
+func fixInv(e: Expression) =
+  assert e.kind == Sum
+  for child in e.children:
+    assert child.kind == Product
+    if child.constDisabled:
+      return # doesn't need fixing
+
+  e.children[0].constDisabled = true
+
+func fixTree(e: Expression) = 
+  for child in e.children:
+    child.fixTree()
+  if e.kind == ExprKind.Inverse:
+    e.children[0].fixInv()
+
 func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int, canDelete: bool): seq[Expression] =
   if node.kind in UnaryKinds + {ExprKind.IntPower}:
     var newAllowed = allowed
@@ -120,7 +135,9 @@ func generateTrees(e, node: Expression, basis, allowed: Basis, varCount: int, ca
       result.add e.copyAndDelete(node)
 
 func generateTrees*(e: Expression, basis: Basis, varCount: int): seq[Expression] {.inline.} =
-  generateTrees(e, e, basis, basis, varCount, false)
+  result = generateTrees(e, e, basis, basis, varCount, false)
+  for t in result:
+    t.fixTree()
 
 proc nextId(): int =
   var idCounter {.global.} = 2

@@ -1,14 +1,18 @@
 import matrix, variabledata
 import expressions, formula, paramgenerator
+import jit/jit
 import sugar
 from fenv import epsilon
 from math import sum, isNaN, exp
 #import nimprof
 from algorithm import fill
 from sequtils import map, toSeq
-#from macros import expandMacros
+#from macros import expandMacro
+
+const EvalJit = true
 
 proc fillData(f: LinearFormula,
+    programs: seq[JitProgram],
     vars: VariableData,
     nlParams, y: Vector,
     n, varCount, p, pl: int,
@@ -18,22 +22,49 @@ proc fillData(f: LinearFormula,
   var derivs = matrix(n, p)
   
   var derivsRow = vector(p)
+  # var testDerivsRow = vector(p)
   for i in 0..<n:
     derivsRow.data.fill(0.0)
+    # testDerivsRow.data.fill(0.0)
     var paramIndex = 0
     for k in 0..<pl-1:
       # debugEcho vars[i, _].squeeze(0)
-      let startParamIndex = paramIndex
-      let val = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
-      if isNaN(val) or abs(val) > 1e10:
-        # debugEcho "NaNs!"
-        return Inf
+      when EvalJit:
+        let val = programs[k].evalAll(vars[i], nlParams, paramIndex, derivsRow)
+        if isNaN(val) or abs(val) > 1e10:
+          # debugEcho "NaNs!"
+          return Inf
 
-      phi[i, k] = val
-      # debugEcho val
-      # debugEcho phi[i, k]
-      paramIndex = startParamIndex
-      f.terms[k].e.evalDerivs(vars[i], nlParams, paramIndex, derivsRow)
+        phi[i, k] = val
+        paramIndex += f.terms[k].nonlinearParams
+
+        # let startParamIndex = paramIndex
+        # let newVal = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
+        # paramIndex = startParamIndex
+        # f.terms[k].e.evalDerivs(vars[i], nlParams, paramIndex, testDerivsRow)
+        # if abs(newVal) > 1e-10 and norm(derivsRow) > 1e-10 and
+        #     (abs(val - newVal)/abs(newVal) > 1e-5 or 
+        #     norm(derivsRow - testDerivsRow)/norm(derivsRow) > 1e-5):
+        #   debugEcho f.terms[k].e
+        #   debugEcho vars[i][0]
+        #   debugEcho nlParams
+        #   debugEcho val
+        #   debugEcho newVal
+        #   debugEcho derivsRow
+        #   debugEcho testDerivsRow
+        #   quit(0)
+      else:
+        let startParamIndex = paramIndex
+        let val = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
+        if isNaN(val) or abs(val) > 1e10:
+          # debugEcho "NaNs!"
+          return Inf
+
+        phi[i, k] = val
+        # debugEcho val
+        # debugEcho phi[i, k]
+        paramIndex = startParamIndex
+        f.terms[k].e.evalDerivs(vars[i], nlParams, paramIndex, derivsRow)
     # debugEcho derivsRow
     derivs.setRow(derivsRow, i)
     
@@ -133,6 +164,7 @@ proc fillData(f: LinearFormula,
   # debugEcho "jacobian = ", jacobian
 
 proc evalOnly(f: LinearFormula,
+    programs: seq[JitProgram],
     vars: VariableData,
     nlParams, y: Vector,
     n, varCount, p, pl: int, linearParams: var Vector): Vector =
@@ -141,13 +173,21 @@ proc evalOnly(f: LinearFormula,
   for i in 0..<n:
     var paramIndex = 0
     for k in 0..<pl-1:
+      when EvalJit:
+        let val = programs[k].eval(vars[i], paramIndex, nlParams)
+        if isNaN(val) or abs(val) > 1e10:
+          # debugEcho "NaNs!"
+          return vector(0)
+        phi[i, k] = val
+        paramIndex += f.terms[k].nonlinearParams
+      else:
       # debugEcho vars[i, _].squeeze(0)
       # let startParamIndex = paramIndex
-      let val = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
-      if isNaN(val) or abs(val) > 1e10:
-        # debugEcho "NaNs!"
-        return vector(0)
-      phi[i, k] = val
+        let val = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
+        if isNaN(val) or abs(val) > 1e10:
+          # debugEcho "NaNs!"
+          return vector(0)
+        phi[i, k] = val
       # debugEcho phi[i, k]
     phi[i, pl-1] = 1
   
@@ -221,6 +261,7 @@ proc evalOnly(f: LinearFormula,
 #     result[i] = num / a[i, i]
 
 proc fitParams(f: LinearFormula,
+    programs: seq[JitProgram],
     vars: VariableData,
     y: Vector,
     startParams: Vector):
@@ -238,7 +279,7 @@ proc fitParams(f: LinearFormula,
 
   var params = startParams
   # echo params
-  var err = f.fillData(vars, params, y, n, varCount, p, pl, jacobian, linearParams, errors, fVals)
+  var err = f.fillData(programs, vars, params, y, n, varCount, p, pl, jacobian, linearParams, errors, fVals)
   # debugEcho err
   # debugEcho jacobian
   # debugEcho linearParams
@@ -273,7 +314,7 @@ proc fitParams(f: LinearFormula,
 
       var paramsAfterStep = params + hStep * delta
       var cAfterStep: Vector
-      let fAfterStep = f.evalOnly(vars, paramsAfterStep, y, n, varCount, p, pl, cAfterStep)
+      let fAfterStep = f.evalOnly(programs, vars, paramsAfterStep, y, n, varCount, p, pl, cAfterStep)
       if fAfterStep.len == 0:
         return (
           linearParams: vector(0), 
@@ -294,7 +335,7 @@ proc fitParams(f: LinearFormula,
 
     var newParams = params + delta
     #echo "P ", params
-    var newErr = f.fillData(vars, newParams, y, n, varCount, p, pl, newJacobian, newLinearParams, newErrors, newFVals)
+    var newErr = f.fillData(programs, vars, newParams, y, n, varCount, p, pl, newJacobian, newLinearParams, newErrors, newFVals)
 
     # echo "-> ", newParams, " ", newErr
 
@@ -326,10 +367,14 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, howMany = 30):
   for term in f.terms:
     paramCount += term.nonlinearParams
 
+  var programs = collect(newSeqOfCap(f.terms.len)):
+    for term in f.terms:
+      term.e.compile()
+
   if paramCount == 0:
     let (n, varCount) = (vars.rows, vars.varCount)
     let pl = f.terms.len + 1
-    let fVals = f.evalOnly(vars, vector(0), y,
+    let fVals = f.evalOnly(programs, vars, vector(0), y,
       n, varCount, 0, pl, result.linearParams)
     if fVals.len == 0:
       result.error = Inf
@@ -342,7 +387,7 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, howMany = 30):
     for params in generateInitialParams(paramCount, howMany):
       # debugEcho "!", counter, " ", params
       inc counter
-      let t = f.fitParams(vars, y, params)
+      let t = f.fitParams(programs, vars, y, params)
       # echo t.error, " -> ", params
       if t.error < result.error:
         result = t

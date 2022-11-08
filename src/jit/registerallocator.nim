@@ -39,10 +39,11 @@ func freeRegisters(a: var Allocator, counter: int) =
       if lifetime <= counter:
         a.registers[r] = NoVar
 
-func allocateRegister(a: var Allocator): (CommandArgument, Command) =
+func allocateRegister(a: var Allocator, skip: seq[int] = @[]): (CommandArgument, Command) =
   var bestRegister = -1
   var bestRegisterLifetime = -1
   for r in 0..<RegisterCount:
+    if r in skip: continue
     if a.registers[r] == NoVar:
       return (
         CommandArgument(kind: cakRegister, id: r),
@@ -79,9 +80,27 @@ func allocate(a: var Allocator, s: var seq[Command], counter: var int) =
     if c.kind in {ckMov, ckPush, ckPop}:
       inc index
       continue
+    
+    var skipRegisters: seq[int] = @[]
+    if c.kind == ckIntPower:
+      if c.power == 2:
+        c = Command(kind: ckMul, args: @[c.args[0], c.args[0]], result: c.result)
+      elif c.args[0].kind != cakRegister:
+        let (newRegister, command) = a.allocateRegister()
+        if command.kind != ckNop:
+          s.insert(command, index)
+          inc index
+        s.insert(
+          Command(kind: ckMov, args: @[c.args[0]], result: newRegister),
+          index
+        )
+        inc index
+        skipRegisters.add newRegister.id
+        a.registersTemporary[newRegister.id] = c.args[0]
+        c.args[0] = newRegister
 
     if c.result.kind == cakIntermediate:
-      let (newRegister, command) = a.allocateRegister()
+      let (newRegister, command) = a.allocateRegister(skipRegisters)
       if command.kind != ckNop:
         s.insert(command, index)
         inc index
@@ -90,7 +109,7 @@ func allocate(a: var Allocator, s: var seq[Command], counter: var int) =
       a.inters[c.result.id] = newRegister
       c.result = newRegister
     elif c.result.kind in {cakDerivative, cakResult}:
-      let (newRegister, command) = a.allocateRegister()
+      let (newRegister, command) = a.allocateRegister(skipRegisters)
       if command.kind != ckNop:
         s.insert(command, index)
         inc index
@@ -123,7 +142,23 @@ func allocateDerivs(a: var Allocator, p: var Program) =
   for i, d in p.derivatives:
     if d.kind == cakIntermediate:
       p.replaceAll(d, CommandArgument(kind: cakDerivative, id: i))
-  p.replaceAll(p.forwardResult, CommandArgument(kind: cakResult))
+  
+  if p.forwardResult.kind == cakIntermediate:
+    p.replaceAll(p.forwardResult, CommandArgument(kind: cakResult))
+  else:
+    let (newRegister, command) = a.allocateRegister(@[])
+    assert command.kind == ckNop # not sure if this will always work
+    p.forward.add Command(
+      kind: ckMov,
+      args: @[p.forwardResult],
+      result: newRegister
+    )
+    p.forward.add Command(
+      kind: ckMov,
+      args: @[newRegister],
+      result: CommandArgument(kind: cakResult)
+    )
+    p.forwardResult = CommandArgument(kind: cakResult)
 
 func fixMemoryArgs(s: var seq[Command]) =
   var index = 0

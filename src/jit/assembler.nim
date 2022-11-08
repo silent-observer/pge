@@ -1,4 +1,5 @@
 import ir {.all.}
+from algorithm import reverse
 when isMainModule:
   import ../expressions
   import optimizer
@@ -24,7 +25,8 @@ when isMainModule:
 #     ret
 
 type
-  #Assembler = object
+  Assembler = object
+    additionalConsts*: seq[float64]
   AssembledCode = object
     prog*: seq[byte]
     data*: seq[byte]
@@ -59,7 +61,7 @@ func add64Bit(s: var seq[byte], x: uint64) =
     byte((x shr 56) and 0xFF),
   ]
 
-func calcModRM(reg, rm: CommandArgument): seq[byte] =
+func calcModRM(a: var Assembler, reg, rm: CommandArgument): seq[byte] =
   assert reg.kind == cakRegister
   let r = reg.id
   case rm.kind:
@@ -89,27 +91,31 @@ func calcModRM(reg, rm: CommandArgument): seq[byte] =
     elif rm.kind == cakMinusOne:
       result.add 64'u8 + 24'u8
   of cakConst:
-    assert false, "Not supported yet"
+    if rm.c notin a.additionalConsts:
+      a.additionalConsts.add rm.c
+    let constId = a.additionalConsts.find(rm.c) + 4
+    result.add byte(0x40 or (r shl 3)) # ... r, [RAX + i*8]
+    result.add 64'u8 + 8'u8 * byte(constId)
   of cakIntermediate:
     assert false
 
-func assemble(c: Command, result: var seq[byte]) =
+func assemble(a: var Assembler, c: Command, result: var seq[byte]) =
   case c.kind:
   of ckMov:
     if c.result.kind == cakRegister:
       result.add [0xF2'u8, 0x0F, 0x10] # movsd $r, $0
-      result.add calcModRM(c.result, c.args[0])
+      result.add a.calcModRM(c.result, c.args[0])
     else:
       result.add [0xF2'u8, 0x0F, 0x11] # movsd $r, $0
-      result.add calcModRM(c.args[0], c.result)
+      result.add a.calcModRM(c.args[0], c.result)
   of ckAdd:
     assert c.result == c.args[0]
     result.add [0xF2'u8, 0x0F, 0x58] # addsd $0, $1
-    result.add calcModRM(c.args[0], c.args[1])
+    result.add a.calcModRM(c.args[0], c.args[1])
   of ckSub:
     assert c.result == c.args[0]
     result.add [0xF2'u8, 0x0F, 0x5C] # subsd $0, $1
-    result.add calcModRM(c.args[0], c.args[1])
+    result.add a.calcModRM(c.args[0], c.args[1])
   of ckMul:
     assert c.result == c.args[0]
     if c.args[1] == MinusOne:
@@ -119,17 +125,17 @@ func assemble(c: Command, result: var seq[byte]) =
       result.add 0x40'u8
     else:
       result.add [0xF2'u8, 0x0F, 0x59] # mulsd $0, $1r
-      result.add calcModRM(c.args[0], c.args[1])
+      result.add a.calcModRM(c.args[0], c.args[1])
   of ckInv:
     assert c.result != c.args[0]
     result.add [0xF2'u8, 0x0F, 0x10] # movsd $r, 1
-    result.add calcModRM(c.result, One)
+    result.add a.calcModRM(c.result, One)
     result.add [0xF2'u8, 0x0F, 0x5E] # divsd $r, $0
-    result.add calcModRM(c.result, c.args[0])
+    result.add a.calcModRM(c.result, c.args[0])
   of ckDiv:
     assert c.result == c.args[0]
     result.add [0xF2'u8, 0x0F, 0x5E] # divsd $r, $0
-    result.add calcModRM(c.args[0], c.args[1])
+    result.add a.calcModRM(c.args[0], c.args[1])
   of ckPush:
     var offset = c.args.len.uint32 * 8
     if offset mod 16 != 8:
@@ -138,11 +144,11 @@ func assemble(c: Command, result: var seq[byte]) =
     result.add32Bit(offset)
     for i, arg in c.args:
       result.add [0xF2'u8, 0x0F, 0x11] # movsd [RSP+offset], $arg
-      result.add calcModRM(arg, CommandArgument(kind: cakMemory, id: i))
+      result.add a.calcModRM(arg, CommandArgument(kind: cakMemory, id: i))
   of ckPop:
     for i, arg in c.args:
       result.add [0xF2'u8, 0x0F, 0x10] # movsd $arg, [RSP+offset]
-      result.add calcModRM(arg, CommandArgument(kind: cakMemory, id: i))
+      result.add a.calcModRM(arg, CommandArgument(kind: cakMemory, id: i))
     var offset = c.args.len.uint32 * 8
     if offset mod 16 != 8:
       offset += 8
@@ -169,7 +175,22 @@ func assemble(c: Command, result: var seq[byte]) =
       0x5F'u8, 0x5E, 0x5A, 0x59, 0x58, # pop RAX, RCX, RDX, RSI, RDI
     ]
   of ckIntPower:
-    assert false, "Not implemented yet"
+    var power = c.power
+    var binary: seq[int] = @[]
+    while power > 0:
+      binary.add(power mod 2)
+      power = power div 2
+    binary.reverse()
+    
+    result.add [0xF2'u8, 0x0F, 0x10] # movsd $result, $arg
+    result.add a.calcModRM(c.result, c.args[0])
+    for b in binary[1..^1]:
+      result.add [0xF2'u8, 0x0F, 0x59] # mulsd $result, $result
+      result.add a.calcModRM(c.result, c.result)
+      if b == 1:
+        result.add [0xF2'u8, 0x0F, 0x59] # mulsd $result, $arg
+        result.add a.calcModRM(c.result, c.args[0])
+
   of ckNop:
     assert false
 
@@ -181,14 +202,16 @@ func assemble*(p: Program): AssembledCode =
 
   const Finale = @[0xC3'u8] # ret
 
+  var a = Assembler()
+
   var forwardCode, backwardCode: seq[byte]
   for c in p.forward:
-    assemble(c, forwardCode)
+    a.assemble(c, forwardCode)
   for c in p.backward:
-    assemble(c, backwardCode)
+    a.assemble(c, backwardCode)
 
   result.prog = prelude & forwardCode & backwardCode & Finale
-  let consts = @ConstArrayStart
+  let consts = @ConstArrayStart & a.additionalConsts
   let funcs = [
     cast[uint64](absFunc),
     cast[uint64](expFunc),
@@ -230,16 +253,20 @@ when isMainModule:
   #   initBigExpr(Product),
   #   initVariable(0)
   # )
-  let e = initBigExpr(Product).withChildren(
-    initUnaryExpr(Sin).nested(
-      initBigExpr(Sum),
+  let e = initBigExpr(Sum).withChildren(
+    initBigExpr(Product).nested(
+      initIntPower(10),
+      initVariable(0)
+    ),
+    initBigExpr(Product).nested(
+      initIntPower(5),
+      initUnaryExpr(Sin),
       initBigExpr(Product),
       initVariable(0)
     ),
-    initUnaryExpr(Sin).nested(
-      initBigExpr(Sum),
-      initBigExpr(Product),
-      initVariable(1)
+    initBigExpr(Product).nested(
+      initIntPower(2),
+      initVariable(0)
     )
   )
   echo e
@@ -260,5 +287,9 @@ when isMainModule:
 
   let code = p3.assemble()
   for b in code.prog:
+    stdout.write("" & b.toHex() & " ")
+  echo ""
+  echo ""
+  for b in code.data:
     stdout.write("" & b.toHex() & " ")
   echo ""

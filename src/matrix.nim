@@ -38,7 +38,11 @@ proc d(m: var Matrix): ptr Number {.inline.} =
   addr m.data[0]
 proc d(m: Matrix): ptr Number {.inline.} = 
   unsafeAddr m.data[0]
-func getAddr*(v: Vector): ptr Number {.inline.} = v.d
+func getAddr*(v: Vector, i: int): ptr Number {.inline.} =
+  if v.data.len <= i:
+    nil
+  else:
+    unsafeAddr v.data[i]
 
 proc `[]`*(v: Vector, i: int): Number {.inline.} =
   v.data[i]

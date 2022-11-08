@@ -2,6 +2,7 @@ import ir, optimizer, registerallocator, assembler
 import ../expressions, ../variabledata, ../matrix
 import posix
 from strutils import toHex
+import lrucache
 
 type
   JitProcedure = proc(vars, params, derivs, result: ptr float64, data: pointer) {.cdecl.}
@@ -24,7 +25,7 @@ proc `=sink`*(dest: var JitProgramObj, src: JitProgramObj) =
   dest.evalProc = src.evalProc
   dest.data = src.data
 
-proc compile*(e: Expression): JitProgram =
+proc compileUncached(e: Expression): JitProgram =
   new(result)
   let 
     p1 = e.convertToIr()
@@ -35,11 +36,14 @@ proc compile*(e: Expression): JitProgram =
     codeOnlyEval = p3OnlyEval.assemble()
     totalCode = codeOnlyEval.prog & codeFull.prog
 
-  echo p3Full
+  # echo e
+  # echo p1
+  # echo p2
+  # echo p3Full
 
-  for b in totalCode:
-    stdout.write("" & b.toHex() & " ")
-  echo ""
+  # for b in totalCode:
+  #   stdout.write("" & b.toHex() & " ")
+  # echo ""
 
   result.length = totalCode.len
   result.codePage = mmap(
@@ -62,23 +66,34 @@ proc compile*(e: Expression): JitProgram =
     result.data.insert(0'u8, 0)
     inc result.constsPtrShift
 
+var cache = newLruCache[SerializedExpr, JitProgram](256)
+proc compile*(e: Expression): JitProgram =
+  let s = e.serialized()
+  if s in cache:
+    result = cache[s]
+  else:
+    result = e.compileUncached()
+    cache[s] = result
+
 proc evalAll*(j: JitProgram,
     vars: VariableSlice,
     params: Vector,
+    paramIndex: int,
     derivs: var Vector): Number =
   j.evalAllProc(
     getAddr vars,
-    getAddr params,
-    getAddr derivs,
+    params.getAddr(paramIndex),
+    derivs.getAddr(paramIndex),
     addr result,
     unsafeAddr j.data[j.constsPtrShift]
   )
 proc eval*(j: JitProgram,
     vars: VariableSlice,
+    paramIndex: int,
     params: Vector): Number =
   j.evalProc(
     getAddr vars,
-    getAddr params,
+    params.getAddr(paramIndex),
     nil,
     addr result,
     unsafeAddr j.data[j.constsPtrShift]
@@ -103,22 +118,42 @@ when isMainModule:
   #     )
   #   )
   # )
-  let e = initBigExpr(Sum).nested(
-    initBigExpr(Product),
-    initUnaryExpr(Asin),
-    initBigExpr(Sum),
-    initBigExpr(Product),
-    initVariable(0)
+  let e = initBigExpr(Sum).withChildren(
+    initBigExpr(Product).nested(
+      initIntPower(10),
+      initVariable(0)
+    ),
+    initBigExpr(Product).nested(
+      initIntPower(9),
+      initVariable(0)
+    ),
+    initBigExpr(Product).nested(
+      initIntPower(5),
+      initVariable(0)
+    ),
+    initBigExpr(Product).nested(
+      initIntPower(3),
+      initVariable(0)
+    ),
+    initBigExpr(Product).nested(
+      initIntPower(2),
+      initVariable(0)
+    ),
+    initBigExpr(Product).nested(
+      initVariable(0)
+    )
   )
   
+  echo e
+  echo ""
   let j = e.compile()
   let vars = toVariableData(@[
     #@[1.5, 2.0]
-    @[0.5]
+    @[2.0]
   ])
   let params = #vector(@[1.0, -1.0, 1.0, 0.1, 1.0])
-    vector(@[1.0, 0.5, 0.0, 1.0])
-  var derivs = vector(4)
-  let r = j.evalAll(vars[0], params, derivs)
+    vector(@[1.0, 1.0, 2.0, -0.5, -1.0, 1.0, 2.0])
+  var derivs = vector(7)
+  let r = j.evalAll(vars[0], params, 0, derivs)
   echo r
   echo derivs

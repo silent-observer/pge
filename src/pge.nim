@@ -58,8 +58,8 @@ proc approxTree(f: LinearFormula, data: Data) =
   let comp = s.complexity()
   approxQueue.add f, t.error, comp
 
-let file = openFileStream("graph3.csv", fmWrite)
-let fileMeta = openFileStream("graph3meta.csv", fmWrite)
+let file = openFileStream("graph4.csv", fmWrite)
+let fileMeta = openFileStream("graph4meta.csv", fmWrite)
 
 proc handleTree(f: LinearFormula, data: Data) =
   let s = f.serialized()
@@ -111,12 +111,15 @@ proc checkSuddenDrop() =
 
   var maxSlope = 0.0
   var maxI = 0
+  echo ""
+  echo "Slopes:"
   for i in 1..<data.len:
     let
       prevLogError = log10(data[i-1].error)
       thisLogError = log10(data[i].error)
       slope = (thisLogError - prevLogError) / 
         Number(data[i-1].complexity - data[i].complexity)
+    echo fmt"{i}{'\t'}{slope:.2f}{'\t'}{data[i].text}"
     if slope > maxSlope:
       maxSlope = slope
       maxI = i

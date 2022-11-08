@@ -88,7 +88,7 @@ const
   Zero = CommandArgument(kind: cakZero)
   One = CommandArgument(kind: cakOne)
   MinusOne = CommandArgument(kind: cakMinusOne)
-  Nop = Command(kind: ckNop)
+  Nop* = Command(kind: ckNop)
 
 func initIrConverter(paramCount: int): IrConverter =
   result.paramIndex = 0
@@ -205,7 +205,7 @@ func convert(c: var IrConverter, e: Expression,
         result.backward,
         c.derivatives[c.paramIndex],
         currentDeriv)
-    inc c.paramIndex
+      inc c.paramIndex
 
     for child in e.children:
       let childProg = c.convert(child, currentDeriv)
@@ -218,8 +218,10 @@ func convert(c: var IrConverter, e: Expression,
     var childBackward: seq[Command]
     var childResults: seq[CommandArgument]
     let paramIndex = c.paramIndex
+    let thisParam = if e.constDisabled: One else: param(c.paramIndex)
     if not e.constDisabled:
       inc c.paramIndex
+    
     for i, child in e.children:
       childDerivs.add c.nextInter()
       let childProg = c.convert(child, childDerivs[i])
@@ -233,12 +235,12 @@ func convert(c: var IrConverter, e: Expression,
         result.backward,
         c.derivatives[paramIndex],
         d)
-      r = c.mul(result.forward, r, param(paramIndex))
+      r = c.mul(result.forward, r, thisParam)
     if e.children.len == 1:
-      discard c.mul(result.backward, currentDeriv, param(paramIndex))
+      discard c.mul(result.backward, currentDeriv, thisParam)
       result.backward[^1].result = childDerivs[0]
     else:
-      let derC = c.mul(result.backward, currentDeriv, param(paramIndex))
+      let derC = c.mul(result.backward, currentDeriv, thisParam)
       for i in 0..<e.children.len:
         var deriv = derC
         for j in 0..<e.children.len:
@@ -251,16 +253,19 @@ func convert(c: var IrConverter, e: Expression,
     let newDeriv = c.nextInter()
     let childProg = c.convert(e.children[0], newDeriv)
     result.forward.add childProg.forward
-    let minusOnePower =
-      if e.power > 2:
-        c.intPower(result.forward, x, e.power-1)
-      else:
-        x
-    r = c.mul(result.forward, minusOnePower, x)
-    let powerRule = c.mul(result.backward, constVal(float64(e.power-1)), minusOnePower)
-    discard c.mul(result.backward, currentDeriv, powerRule)
-    result.backward[^1].result = newDeriv
-    result.backward.add childProg.backward
+    if e.children[0].kind == Variable: # case where no derivative is needed
+      r = c.intPower(result.forward, x, e.power)
+    else:
+      let minusOnePower =
+        if e.power > 2:
+          c.intPower(result.forward, x, e.power-1)
+        else:
+          x
+      r = c.mul(result.forward, minusOnePower, x)
+      let powerRule = c.mul(result.backward, constVal(float64(e.power-1)), minusOnePower)
+      discard c.mul(result.backward, currentDeriv, powerRule)
+      result.backward[^1].result = newDeriv
+      result.backward.add childProg.backward
   of Inverse:
     let newDeriv = c.nextInter()
     let childProg = c.convert(e.children[0], newDeriv)
@@ -278,6 +283,7 @@ func convert(c: var IrConverter, e: Expression,
     r = c.callFunc(result.forward, x, "exp")
     discard c.mul(result.backward, currentDeriv, r)
     result.backward[^1].result = newDeriv
+    result.backward.add childProg.backward
   of Ln:
     let newDeriv = c.nextInter()
     let childProg = c.convert(e.children[0], newDeriv)

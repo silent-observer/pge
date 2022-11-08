@@ -14,3 +14,4 @@ bin           = @["pge"]
 requires "nim >= 1.6.2"
 requires "nimlapack"
 requires "nimblas"
+requires "lrucache"

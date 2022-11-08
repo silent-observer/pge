@@ -191,6 +191,11 @@ func evalDerivs*(e: Expression,
     if not e.constDisabled:
       if abs(thisParam) > 1e-10:
         result[paramIndex] += currentDeriv * e.lastValue / thisParam
+      else:
+        var d = currentDeriv
+        for j, otherChild in e.children:
+          d *= otherChild.lastValue
+        result[paramIndex] += d
       inc paramIndex
     for i, child in e.children:
       let newDeriv = (
