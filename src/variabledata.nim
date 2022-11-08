@@ -6,7 +6,7 @@ type
     data*: ref seq[Number]
   VariableSlice* = object
     varCount*: int
-    data*: ref seq[Number]
+    data* {.cursor.}: ref seq[Number]
     row*: int
 
 func initVariableData*(varCount: int): VariableData =

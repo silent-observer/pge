@@ -42,35 +42,35 @@ var front: ParetoFront
 var startTime: Monotime
 var functionsFit = 0
 
-var treeState = initTable[int, string]()
+# var treeState = initTable[int, string]()
 
 proc approxTree(f: LinearFormula, data: Data) =
   let s = f.serialized()
 
   if s in exprSet:
-    echo "X ", f
-    treeState[f.id] = "#f1faee"
+    # echo "X ", f
+    # treeState[f.id] = "#f1faee"
     return
-  echo "A ", f
-  treeState[f.id] = "#3a86ff"
+  # echo "A ", f
+  # treeState[f.id] = "#3a86ff"
 
   let t = f.fitParams(data.approxX, data.approxY, howMany=10)
   let comp = s.complexity()
   approxQueue.add f, t.error, comp
 
-let file = openFileStream("graph4.csv", fmWrite)
-let fileMeta = openFileStream("graph4meta.csv", fmWrite)
+# let file = openFileStream("graph4.csv", fmWrite)
+# let fileMeta = openFileStream("graph4meta.csv", fmWrite)
 
 proc handleTree(f: LinearFormula, data: Data) =
   let s = f.serialized()
 
   if s in exprSet:
-    echo "X ", f
-    treeState[f.id] = "#f1faee"
+    # echo "X ", f
+    # treeState[f.id] = "#f1faee"
     return
 
-  echo "> ", f
-  treeState[f.id] = "#4f772d"
+  # echo "> ", f
+  # treeState[f.id] = "#4f772d"
 
   #let f = e.linearize()
   let t = f.fitParams(data.trainX, data.trainY)
@@ -93,12 +93,12 @@ proc handleTree(f: LinearFormula, data: Data) =
     echo fmt"Complexity: {comp}"
     echo fmt"Functions evaluated: {functionsFit}"
     echo fmt"Total time: {getMonoTime() - startTime}"
-    file.close()
+    # file.close()
 
-    fileMeta.writeLine "id;node_color"
-    for t in treeState.pairs.toSeq().sorted():
-      fileMeta.writeLine t[0], ";", t[1]
-    fileMeta.close()
+    # fileMeta.writeLine "id;node_color"
+    # for t in treeState.pairs.toSeq().sorted():
+    #   fileMeta.writeLine t[0], ";", t[1]
+    # fileMeta.close()
     quit 0
   
   exprSet.add s
@@ -159,14 +159,14 @@ when isMainModule:
   let emptyFormula = initLinearFormula()
   emptyFormula.handleTree(data)
   
-  file.writeLine "source;target"
+  # file.writeLine "source;target"
   block main:
     #file.writeLine("Hello world")
     #file.close()
 
-    for i in 0..<1000:
+    for i in 0..<5:
       let n = mainQueue.pop()
-      treeState[n.tree.id] = "#ffc300"
+      # treeState[n.tree.id] = "#ffc300"
       echo i, ": ", n.tree
       echo fmt"Error: {n.error:.3e}"
       echo fmt"Log error: {log10(n.error):.2f}"
@@ -175,7 +175,7 @@ when isMainModule:
       for tree in n.tree.generateFormulas(basis, VarCount):
         # tree.simplify().handleTree(data)
         tree.simplify().approxTree(data)
-        file.writeLine(n.tree.id, ";", tree.id)
+        # file.writeLine(n.tree.id, ";", tree.id)
       
       const ApproxQueueCoefficient = 0.4
       let totalQueueSize = mainQueue.len + approxQueue.len

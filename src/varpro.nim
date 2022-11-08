@@ -11,8 +11,8 @@ from sequtils import map, toSeq
 
 const EvalJit = true
 
-proc fillData(f: LinearFormula,
-    programs: seq[JitProgram],
+proc fillData(programs: seq[JitProgram],
+    paramCounts: seq[int],
     vars: VariableData,
     nlParams, y: Vector,
     n, varCount, p, pl: int,
@@ -36,7 +36,7 @@ proc fillData(f: LinearFormula,
           return Inf
 
         phi[i, k] = val
-        paramIndex += f.terms[k].nonlinearParams
+        paramIndex += paramCounts[k]
 
         # let startParamIndex = paramIndex
         # let newVal = f.terms[k].e.eval(vars[i], nlParams, paramIndex)
@@ -121,7 +121,7 @@ proc fillData(f: LinearFormula,
   var cs = vector(p)
   var paramIndex = 0
   for k in 0..<pl-1:
-    let paramCount = f.terms[k].nonlinearParams
+    let paramCount = paramCounts[k]
     if paramCount == 0: continue
     for s in paramIndex..<paramIndex+paramCount:
       kFun[s] = k
@@ -163,8 +163,8 @@ proc fillData(f: LinearFormula,
   errors = r
   # debugEcho "jacobian = ", jacobian
 
-proc evalOnly(f: LinearFormula,
-    programs: seq[JitProgram],
+proc evalOnly(programs: seq[JitProgram],
+    paramCounts: seq[int],
     vars: VariableData,
     nlParams, y: Vector,
     n, varCount, p, pl: int, linearParams: var Vector): Vector =
@@ -179,7 +179,7 @@ proc evalOnly(f: LinearFormula,
           # debugEcho "NaNs!"
           return vector(0)
         phi[i, k] = val
-        paramIndex += f.terms[k].nonlinearParams
+        paramIndex += paramCounts[k]
       else:
       # debugEcho vars[i, _].squeeze(0)
       # let startParamIndex = paramIndex
@@ -260,15 +260,15 @@ proc evalOnly(f: LinearFormula,
 #       num -= result[j] * a[j, i]
 #     result[i] = num / a[i, i]
 
-proc fitParams(f: LinearFormula,
-    programs: seq[JitProgram],
+proc fitParams(programs: seq[JitProgram],
+    paramCounts: seq[int],
     vars: VariableData,
     y: Vector,
     startParams: Vector):
     tuple[linearParams, nonlinearParams: Vector, error: Number] =
   let (n, varCount) = (vars.rows, vars.varCount)
   let p = startParams.len
-  let pl = f.terms.len + 1
+  let pl = programs.len + 1
 
   var
     jacobian: Matrix
@@ -279,7 +279,7 @@ proc fitParams(f: LinearFormula,
 
   var params = startParams
   # echo params
-  var err = f.fillData(programs, vars, params, y, n, varCount, p, pl, jacobian, linearParams, errors, fVals)
+  var err = fillData(programs, paramCounts, vars, params, y, n, varCount, p, pl, jacobian, linearParams, errors, fVals)
   # debugEcho err
   # debugEcho jacobian
   # debugEcho linearParams
@@ -314,7 +314,7 @@ proc fitParams(f: LinearFormula,
 
       var paramsAfterStep = params + hStep * delta
       var cAfterStep: Vector
-      let fAfterStep = f.evalOnly(programs, vars, paramsAfterStep, y, n, varCount, p, pl, cAfterStep)
+      let fAfterStep = evalOnly(programs, paramCounts, vars, paramsAfterStep, y, n, varCount, p, pl, cAfterStep)
       if fAfterStep.len == 0:
         return (
           linearParams: vector(0), 
@@ -335,7 +335,7 @@ proc fitParams(f: LinearFormula,
 
     var newParams = params + delta
     #echo "P ", params
-    var newErr = f.fillData(programs, vars, newParams, y, n, varCount, p, pl, newJacobian, newLinearParams, newErrors, newFVals)
+    var newErr = fillData(programs, paramCounts, vars, newParams, y, n, varCount, p, pl, newJacobian, newLinearParams, newErrors, newFVals)
 
     # echo "-> ", newParams, " ", newErr
 
@@ -364,8 +364,10 @@ proc fitParams(f: LinearFormula,
 proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, howMany = 30):
     tuple[linearParams, nonlinearParams: Vector, error: Number] =
   var paramCount = 0
+  var paramCounts = newSeqOfCap[int](f.terms.len)
   for term in f.terms:
     paramCount += term.nonlinearParams
+    paramCounts.add term.nonlinearParams
 
   var programs = collect(newSeqOfCap(f.terms.len)):
     for term in f.terms:
@@ -374,7 +376,7 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, howMany = 30):
   if paramCount == 0:
     let (n, varCount) = (vars.rows, vars.varCount)
     let pl = f.terms.len + 1
-    let fVals = f.evalOnly(programs, vars, vector(0), y,
+    let fVals = evalOnly(programs, paramCounts, vars, vector(0), y,
       n, varCount, 0, pl, result.linearParams)
     if fVals.len == 0:
       result.error = Inf
@@ -387,7 +389,7 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, howMany = 30):
     for params in generateInitialParams(paramCount, howMany):
       # debugEcho "!", counter, " ", params
       inc counter
-      let t = f.fitParams(programs, vars, y, params)
+      let t = fitParams(programs, paramCounts, vars, y, params)
       # echo t.error, " -> ", params
       if t.error < result.error:
         result = t

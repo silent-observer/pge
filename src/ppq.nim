@@ -73,7 +73,10 @@ func add*(pf: var ParetoFront,
     )
 
 func front*(pf: ParetoFront): seq[ParetoData] =
+  # debugEcho pf.data
   result.add pf.data[0]
   for x in pf.data[1..^1]:
+    if x.text == "": continue
     if x.error < result[^1].error:
       result.add x
+  # quit()
