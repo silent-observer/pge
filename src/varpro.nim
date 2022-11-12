@@ -11,6 +11,10 @@ from sequtils import map, toSeq
 
 const EvalJit = true
 
+var totalFills*: int64 = 0
+var totalSteps*: int64 = 0
+var totalTries*: int64 = 0
+
 proc fillData(programs: seq[JitProgram],
     paramCounts: seq[int],
     vars: VariableData,
@@ -18,6 +22,7 @@ proc fillData(programs: seq[JitProgram],
     n, varCount, p, pl: int,
     jacobian: var Matrix,
     linearParams, errors, fVals: var Vector): Number =
+  inc totalFills
   var phi = matrix(n, pl)
   var derivs = matrix(n, p)
   
@@ -92,7 +97,9 @@ proc fillData(programs: seq[JitProgram],
   # debugEcho "derivs = ", derivs
   
   let decomp = phi.svd()
-  let (u, sigma, vh) = (decomp.u, decomp.sigma, decomp.vt)
+  template u: untyped = decomp.u
+  template sigma: untyped = decomp.sigma
+  template vh: untyped = decomp.vt
 
   # debugEcho "u = ", u
   # debugEcho "sigma = ", sigma
@@ -145,21 +152,22 @@ proc fillData(programs: seq[JitProgram],
   # debugEcho "dc = ", dc
   # debugEcho "dr = ", dr
 
-  let uudc = u * (u ^* dc)
-  let a = dc - uudc
+  jacobian = u * (u ^* dc)
+  jacobian -= dc
 
   # debugEcho "dr: ", dr
   # debugEcho "vh: ", vh
   # debugEcho "sigmaInv: ", sigmaInv
   # debugEcho "u: ", u
-  let b = u * (sigmaInv * (vh * dr))
+  # let b = u * (sigmaInv * (vh * dr))
 
   # debugEcho "uudc = ", uudc
   # debugEcho "a = ", a
   # debugEcho "b = ", b
 
   linearParams = c
-  jacobian = -(a + b)
+  # jacobian = -(a + b)
+  #jacobian = -a
   errors = r
   # debugEcho "jacobian = ", jacobian
 
@@ -260,12 +268,15 @@ proc evalOnly(programs: seq[JitProgram],
 #       num -= result[j] * a[j, i]
 #     result[i] = num / a[i, i]
 
+type VarProResult* = tuple[
+    linearParams, nonlinearParams: Vector,
+    error: Number]
+
 proc fitParams(programs: seq[JitProgram],
     paramCounts: seq[int],
     vars: VariableData,
     y: Vector,
-    startParams: Vector):
-    tuple[linearParams, nonlinearParams: Vector, error: Number] =
+    startParams: Vector): VarProResult =
   let (n, varCount) = (vars.rows, vars.varCount)
   let p = startParams.len
   let pl = programs.len + 1
@@ -330,7 +341,8 @@ proc fitParams(programs: seq[JitProgram],
         delta += 0.5 * accel
     # debugEcho delta
     # echo abs(delta).max()
-    if absMax(delta) < 1e-10: break
+    if absMax(delta) < 1e-9: break
+    if err > 1e-3 and absMax(delta) < 1e-4: break
     # echo "!!!"
 
     var newParams = params + delta
@@ -359,10 +371,13 @@ proc fitParams(programs: seq[JitProgram],
       inc consecutiveFail
       if consecutiveFail >= 10:
         inc step
+
+  inc totalTries
+  totalSteps += step
   (linearParams: linearParams, nonlinearParams: params, error: err)
 
-proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, howMany = 30):
-    tuple[linearParams, nonlinearParams: Vector, error: Number] =
+proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, 
+    howMany = 30): VarProResult =
   var paramCount = 0
   var paramCounts = newSeqOfCap[int](f.terms.len)
   for term in f.terms:

@@ -287,7 +287,7 @@ proc `^*`*(a: Matrix, b: DiagonalMatrix): Matrix {.inline.} =
   for i in 0..<a.rows:
     axpy(a.cols, b.Vector[i], unsafeAddr a.data[i], a.rows, addr result[0, i], 1)
 
-proc `*`*(a: DiagonalMatrix, b: Matrix): Matrix=
+proc `*`*(a: DiagonalMatrix, b: Matrix): Matrix {.inline.} =
   assert(a.Vector.len == b.rows, "Matrix dimensions must match")
   result = b
   for i in 0..<b.rows:

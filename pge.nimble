@@ -6,7 +6,7 @@ description   = "Prioritized Grammar Evaluation curve fitter (symbolic regressio
 license       = "MIT"
 srcDir        = "src"
 binDir        = "bin"
-bin           = @["pge"]
+bin           = @["pge", "network/evalserver"]
 
 
 # Dependencies

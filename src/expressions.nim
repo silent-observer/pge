@@ -37,7 +37,7 @@ type
   SerializedExpr* = seq[int]
 
 const 
-  TotalKinds* = high(ExprKind).int - low(ExprKind).int + 1
+  TotalKinds* = high(ExprKind).int - low(ExprKind).int + 2
   UnaryKinds* = {Inverse, Exp, Ln, Sqrt, Sin, Cos, Asin, Acos}
 
 func structureCmp*(a, b: Expression): int =
@@ -348,18 +348,48 @@ func serialize(e: Expression, result: var SerializedExpr) =
   if e.kind == Variable:
     result.add (TotalKinds + e.varIndex)
   else:
-    result.add e.kind.int
+    result.add(e.kind.int + 1)
     if e.kind == IntPower:
       result.add e.power
+    elif e.kind in {Sum, Product}:
+      if e.constDisabled:
+        result.add 1
+      else:
+        result.add 2
     for child in e.children:
       child.serialize(result)
     if e.kind in {Sum, Product}:
-      result.add 0
+      result.add 1
+
+func deserializeExpr*(s: SerializedExpr, i: var int): Expression =
+  if s[i] >= TotalKinds:
+    result = initVariable(s[i] - TotalKinds)
+    inc i
+  else:
+    let kind = ExprKind(s[i] - 1)
+    inc i
+    if kind == IntPower:
+      result = initIntPower(s[i])
+      inc i
+      result.children.add s.deserializeExpr(i)
+    elif kind in {Sum, Product}:
+      let constDisabled = s[i] == 1
+      inc i
+      result = initBigExpr(kind, constDisabled)
+      while i < s.len and s[i] > 1:
+        result.children.add s.deserializeExpr(i)
+      if i < s.len and s[i] == 1:
+        inc i
+    else:
+      result = initUnaryExpr(kind)
+      result.children.add s.deserializeExpr(i)
+
+  
 
 func serialized*(e: Expression): SerializedExpr =
   e.serialize(result)
   for i in countdown(result.len - 1, 0):
-    if result[i] == 0: continue
+    if result[i] == 1: continue
     result.setLen(i+1)
     break
 
@@ -368,10 +398,12 @@ func complexity*(e: SerializedExpr): int =
   while i < e.len:
     if e[i] > TotalKinds:
       result += 2
-    elif e[i] == IntPower.int:
+    elif (e[i] - 1) == IntPower.int:
       i.inc
       result += e[i]
-    elif e[i] in int(Inverse)..int(Acos):
+    elif (e[i] - 1) in {int(Sum), int(Product)}:
+      i.inc
+    elif (e[i] - 1) in int(Inverse)..int(Acos):
       result += 3
     i.inc
 

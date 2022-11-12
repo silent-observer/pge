@@ -62,6 +62,18 @@ func serialized*(f: LinearFormula): SerializedExpr =
     if i > 0: result.add 0
     result.add term.e.serialized()
 
+func deserializeFormula*(s: SerializedExpr): LinearFormula =
+  result.terms = initSmallSet[TermData](termDataCmp)
+  var i = 0
+  while i < s.len:
+    if s[i] == 0:
+      inc i
+    let newTerm = s.deserializeExpr(i)
+    result.terms.add TermData(
+      e: newTerm,
+      nonlinearParams: newTerm.paramCount
+    )
+
 # func evalOnly*(f: LinearFormula, vars, linearParams, nonlinearParams: seq[Number]): Number =
 #   result = linearParams[^1]
 #   var paramIndex = 0
@@ -86,3 +98,32 @@ func toString*(f: LinearFormula, linearParams, nonlinearParams: Vector): string 
     result &= fmt"{linearParams[i]:.4f}" & " * " & 
       term.e.toString(nonlinearParams, paramIndex) & " + "
   result &= fmt"{linearParams[f.terms.len]:.4f}"
+
+when isMainModule:
+  let e1 = initBigExpr(Product).withChildren(
+    initVariable(0)
+  )
+  let e2 = initBigExpr(Product).withChildren(
+      initVariable(1),
+      initUnaryExpr(Inverse).withChildren(
+        initBigExpr(Sum).withChildren(
+          initBigExpr(Product, constDisabled=true).withChildren(
+            initIntPower(2).withChildren(initVariable(0))
+          ),
+          initBigExpr(Product).withChildren(
+            initIntPower(2).withChildren(initVariable(1))
+          )
+        )
+      )
+    )
+  let e3 = nested(
+    initBigExpr(Product),
+    initIntPower(3),
+    initVariable(0)
+  )
+  let f = initLinearFormula(e1, e2, e3)
+  echo f
+  let s = f.serialized()
+  echo s
+  let f2 = s.deserializeFormula()
+  echo f2

@@ -8,14 +8,20 @@ import random, math, times, std/monotimes
 import strformat
 import streams
 import tables, sequtils, algorithm
+import network/evalclient
+import asyncdispatch
 
-const VarCount = 2
+from os import commandLineParams
+from strutils import parseInt, split
+
+const VarCount = 4
 
 type Data = object
   trainX, approxX: VariableData
   trainY, approxY: Vector
 
 const PeekCoefficient = 0.1
+const EchoIntermediate = false
 
 proc generateData(): Data =
   const N = 100
@@ -27,14 +33,19 @@ proc generateData(): Data =
   for i in 0..<N:
     let x = rand(1.0..4.0).Number
     let y = rand(1.0..4.0).Number
+    let z = rand(1.0..4.0).Number
+    let w = rand(1.0..4.0).Number
+    # let err = gauss(sigma=0.001).Number
     #let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
     #let f = exp(x) - 0.5 * exp(-0.5 * x)
-    let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
-    result.trainX.add @[x, y]
+    #let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
+    #let f = exp(0.3 * x + 0.2 * y) + exp(0.3 * y) - 0.5
+    let f = x*y*y + exp(x)/((1+w))
+    result.trainX.add @[x, y, z, w]
     result.trainY[i] = f
     if result.approxX.rows < PeekN:
       result.approxY[result.approxX.rows] = f
-      result.approxX.add @[x, y]
+      result.approxX.add @[x, y, z, w]
 
 var exprSet = newTrie[TotalKinds + VarCount]()
 var mainQueue, approxQueue: ParetoPriorityQueue
@@ -44,36 +55,41 @@ var functionsFit = 0
 
 # var treeState = initTable[int, string]()
 
-proc approxTree(f: LinearFormula, data: Data) =
+proc approxTree(f: LinearFormula) {.async.} =
   let s = f.serialized()
 
   if s in exprSet:
-    # echo "X ", f
+    when EchoIntermediate:
+      echo "X ", f
     # treeState[f.id] = "#f1faee"
     return
-  # echo "A ", f
+  when EchoIntermediate:
+    echo "A ", f
   # treeState[f.id] = "#3a86ff"
 
-  let t = f.fitParams(data.approxX, data.approxY, howMany=10)
+  let t = await f.fitParamsRemote(isApprox=true)
   let comp = s.complexity()
   approxQueue.add f, t.error, comp
 
 # let file = openFileStream("graph4.csv", fmWrite)
 # let fileMeta = openFileStream("graph4meta.csv", fmWrite)
 
-proc handleTree(f: LinearFormula, data: Data) =
+proc handleTree(f: LinearFormula) {.async.} =
   let s = f.serialized()
 
   if s in exprSet:
-    # echo "X ", f
+    when EchoIntermediate:
+      echo "X ", f
     # treeState[f.id] = "#f1faee"
     return
 
-  # echo "> ", f
+  when EchoIntermediate:
+    echo "> ", f
   # treeState[f.id] = "#4f772d"
 
   #let f = e.linearize()
-  let t = f.fitParams(data.trainX, data.trainY)
+  exprSet.add s
+  let t = await f.fitParamsRemote(isApprox=false)
 
   # echo t.linearParams
   # echo t.nonlinearParams
@@ -93,6 +109,9 @@ proc handleTree(f: LinearFormula, data: Data) =
     echo fmt"Complexity: {comp}"
     echo fmt"Functions evaluated: {functionsFit}"
     echo fmt"Total time: {getMonoTime() - startTime}"
+    echo fmt"Average fills: {totalFills.float / totalTries.float}"
+    echo fmt"Average steps: {totalSteps.float / totalTries.float}"
+    echo fmt"Total tries: {totalTries}"
     # file.close()
 
     # fileMeta.writeLine "id;node_color"
@@ -100,8 +119,6 @@ proc handleTree(f: LinearFormula, data: Data) =
     #   fileMeta.writeLine t[0], ";", t[1]
     # fileMeta.close()
     quit 0
-  
-  exprSet.add s
   front.add text, t.error, comp
   mainQueue.add f, t.error, comp
   #echo " -> ", log10(t.error)
@@ -146,7 +163,11 @@ proc checkSuddenDrop() =
     echo fmt"Functions evaluated: {functionsFit}"
     echo ""
 
-when isMainModule:
+proc main(addresses: seq[(string, uint16)]) {.async.} =
+  echo "Start!"
+  initClient(addresses)
+  echo "Sucessfully connected!"
+
   let data = generateData()
 
   startTime = getMonoTime()
@@ -155,16 +176,21 @@ when isMainModule:
     BasisFunction.Inverse,
     BasisFunction.IntPower
   }
+  
+  setRemoteData(false, data.trainX, data.trainY, howMany=30)
+  setRemoteData(true, data.approxX, data.approxY, howMany=10)
 
   let emptyFormula = initLinearFormula()
-  emptyFormula.handleTree(data)
+  await emptyFormula.handleTree()
   
+  var approxFutures = newSeq[Future[void]]()
+  var exactFutures = newSeq[Future[void]]()
   # file.writeLine "source;target"
   block main:
     #file.writeLine("Hello world")
     #file.close()
 
-    for i in 0..<5:
+    for i in 0..<1000:
       let n = mainQueue.pop()
       # treeState[n.tree.id] = "#ffc300"
       echo i, ": ", n.tree
@@ -174,18 +200,35 @@ when isMainModule:
 
       for tree in n.tree.generateFormulas(basis, VarCount):
         # tree.simplify().handleTree(data)
-        tree.simplify().approxTree(data)
+        approxFutures.add tree.simplify().approxTree()
         # file.writeLine(n.tree.id, ";", tree.id)
-      
+      if i < 5:
+        await all(approxFutures)
+
       const ApproxQueueCoefficient = 0.4
       let totalQueueSize = mainQueue.len + approxQueue.len
       let requiredMainQueue = ceil(totalQueueSize.float * ApproxQueueCoefficient).int
       let toTake = requiredMainQueue - mainQueue.len
       for _ in 0..<toTake:
         let node = approxQueue.pop()
-        node.tree.handleTree(data)
+        exactFutures.add node.tree.handleTree()
+      asyncCheck all(approxFutures)
+      if mainQueue.len == 0:
+        await all(exactFutures)
+      else:
+        asyncCheck all(exactFutures)
 
       echo ""
       
       if i mod 25 == 24:
         checkSuddenDrop()
+
+when isMainModule:
+  let params = commandLineParams()
+  if params.len == 0:
+    echo "Usage: pge ADDRESS:PORT ..."
+  var addresses = newSeq[(string, uint16)]()
+  for p in params:
+    let s = p.split(':', 2)
+    addresses.add (s[0], s[1].parseInt.uint16)
+  waitFor main(addresses)
