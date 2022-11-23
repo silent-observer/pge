@@ -396,7 +396,7 @@ func serialized*(e: Expression): SerializedExpr =
 func complexity*(e: SerializedExpr): int =
   var i = 0
   while i < e.len:
-    if e[i] > TotalKinds:
+    if e[i] >= TotalKinds:
       result += 2
     elif (e[i] - 1) == IntPower.int:
       i.inc

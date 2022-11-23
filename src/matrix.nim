@@ -144,6 +144,7 @@ proc dot*(a, b: Vector): Number {.inline.} =
 proc norm*(a: Vector): Number {.inline.} =
   nrm2(a.len, a.d, 1)
 proc absMax*(a: Vector): Number {.inline.} =
+  if a.len == 0: return 0
   let index = iamax(a.len, a.d, 1)
   a.data[index].abs()
 

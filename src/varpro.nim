@@ -22,6 +22,10 @@ proc fillData(programs: seq[JitProgram],
     n, varCount, p, pl: int,
     jacobian: var Matrix,
     linearParams, errors, fVals: var Vector): Number =
+  # if absMax(nlParams) > 1e8:
+  #   return Inf
+  # debugEcho nlParams
+  # debugEcho paramCounts
   inc totalFills
   var phi = matrix(n, pl)
   var derivs = matrix(n, p)
@@ -152,8 +156,10 @@ proc fillData(programs: seq[JitProgram],
   # debugEcho "dc = ", dc
   # debugEcho "dr = ", dr
 
-  jacobian = u * (u ^* dc)
-  jacobian -= dc
+  # jacobian = u * (u ^* dc)
+  # jacobian -= dc
+  let uudc = u * (u ^* dc)
+  let a = dc - uudc
 
   # debugEcho "dr: ", dr
   # debugEcho "vh: ", vh
@@ -167,7 +173,7 @@ proc fillData(programs: seq[JitProgram],
 
   linearParams = c
   # jacobian = -(a + b)
-  #jacobian = -a
+  jacobian = -a
   errors = r
   # debugEcho "jacobian = ", jacobian
 
@@ -176,6 +182,8 @@ proc evalOnly(programs: seq[JitProgram],
     vars: VariableData,
     nlParams, y: Vector,
     n, varCount, p, pl: int, linearParams: var Vector): Vector =
+  if absMax(nlParams) > 1e8:
+    return vector(0)
   var phi = matrix(n, pl)
   # var derivs = zeros[Number](n, p)
   for i in 0..<n:

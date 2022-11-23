@@ -138,7 +138,7 @@ func assemble(a: var Assembler, c: Command, result: var seq[byte]) =
     result.add a.calcModRM(c.args[0], c.args[1])
   of ckPush:
     var offset = c.args.len.uint32 * 8
-    if offset mod 16 != 8:
+    if offset mod 16 != 0:
       offset += 8
     result.add [0x48'u8, 0x81, 0xEC] # sub RSP, $args.len*8
     result.add32Bit(offset)
@@ -150,7 +150,7 @@ func assemble(a: var Assembler, c: Command, result: var seq[byte]) =
       result.add [0xF2'u8, 0x0F, 0x10] # movsd $arg, [RSP+offset]
       result.add a.calcModRM(arg, CommandArgument(kind: cakMemory, id: i))
     var offset = c.args.len.uint32 * 8
-    if offset mod 16 != 8:
+    if offset mod 16 != 0:
       offset += 8
     result.add [0x48'u8, 0x81, 0xC4] # add RSP, $args.len*8
     result.add32Bit(offset)

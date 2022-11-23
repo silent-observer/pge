@@ -14,7 +14,7 @@ import asyncdispatch
 from os import commandLineParams
 from strutils import parseInt, split
 
-const VarCount = 4
+const VarCount = 2
 
 type Data = object
   trainX, approxX: VariableData
@@ -31,21 +31,22 @@ proc generateData(): Data =
   result.trainY = vector(N)
   result.approxY = vector(PeekN)
   for i in 0..<N:
-    let x = rand(1.0..4.0).Number
-    let y = rand(1.0..4.0).Number
-    let z = rand(1.0..4.0).Number
-    let w = rand(1.0..4.0).Number
+    let x = rand(0.0..4.0).Number
+    let y = rand(-1.0..1.0).Number
+    # let z = rand(1.0..4.0).Number
+    # let w = rand(1.0..4.0).Number
     # let err = gauss(sigma=0.001).Number
     #let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
     #let f = exp(x) - 0.5 * exp(-0.5 * x)
     # let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
     #let f = exp(0.3 * x + 0.2 * y) + exp(0.3 * y) - 0.5
-    let f = x*y*y + exp(x)/((1+w))
-    result.trainX.add @[x, y, z, w]
+    # let f = x*y*y + exp(x)/((1+w))
+    let f = exp(-0.2*x)*sin(5*x) + x*y
+    result.trainX.add @[x, y]
     result.trainY[i] = f
     if result.approxX.rows < PeekN:
       result.approxY[result.approxX.rows] = f
-      result.approxX.add @[x, y, z, w]
+      result.approxX.add @[x, y]
 
 var exprSet = newTrie[TotalKinds + VarCount]()
 var mainQueue, approxQueue: ParetoPriorityQueue
@@ -176,8 +177,9 @@ proc checkSuddenDrop() =
 
 proc main(addresses: seq[(string, uint16)]) {.async.} =
   echo "Start!"
-  initClient(addresses)
-  echo "Sucessfully connected!"
+  when RemoteEvaluation:
+    initClient(addresses)
+    echo "Sucessfully connected!"
 
   let data = generateData()
 
@@ -185,13 +187,15 @@ proc main(addresses: seq[(string, uint16)]) {.async.} =
   const basis = {
     BasisFunction.Exp,
     BasisFunction.Inverse,
-    BasisFunction.IntPower
+    BasisFunction.IntPower,
+    BasisFunction.Sin
   }
   
   dataArray[false] = (data.trainX, data.trainY, 30)
   dataArray[true] = (data.approxX, data.approxY, 10)
-  setRemoteData(false, dataArray[false][0], dataArray[false][1], dataArray[false][2])
-  setRemoteData(true, dataArray[true][0], dataArray[true][1], dataArray[true][2])
+  when RemoteEvaluation:
+    setRemoteData(false, dataArray[false][0], dataArray[false][1], dataArray[false][2])
+    setRemoteData(true, dataArray[true][0], dataArray[true][1], dataArray[true][2])
 
   let emptyFormula = initLinearFormula()
   await emptyFormula.handleTree()
@@ -236,11 +240,14 @@ proc main(addresses: seq[(string, uint16)]) {.async.} =
         checkSuddenDrop()
 
 when isMainModule:
-  let params = commandLineParams()
-  if params.len == 0:
-    echo "Usage: pge ADDRESS:PORT ..."
-  var addresses = newSeq[(string, uint16)]()
-  for p in params:
-    let s = p.split(':', 2)
-    addresses.add (s[0], s[1].parseInt.uint16)
+  when RemoteEvaluation:
+    let params = commandLineParams()
+    if params.len == 0:
+      echo "Usage: pge ADDRESS:PORT ..."
+    var addresses = newSeq[(string, uint16)]()
+    for p in params:
+      let s = p.split(':', 2)
+      addresses.add (s[0], s[1].parseInt.uint16)
+  else:
+    let addresses = newSeq[(string, uint16)]()
   waitFor main(addresses)
