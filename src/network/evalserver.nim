@@ -16,7 +16,7 @@ proc processQueue() {.async.} =
     if not b: break
     if m.isTree:
       let (tree, id, isApprox) = m.decodeTree()
-      debugEcho id, ": ", queue.len
+      # debugEcho id, ": ", queue.len
       let data = if isApprox:
           tree.fitParams(x, y, howMany)
         else:

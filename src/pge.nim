@@ -38,7 +38,7 @@ proc generateData(): Data =
     # let err = gauss(sigma=0.001).Number
     #let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
     #let f = exp(x) - 0.5 * exp(-0.5 * x)
-    #let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
+    # let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
     #let f = exp(0.3 * x + 0.2 * y) + exp(0.3 * y) - 0.5
     let f = x*y*y + exp(x)/((1+w))
     result.trainX.add @[x, y, z, w]
@@ -55,6 +55,11 @@ var functionsFit = 0
 
 # var treeState = initTable[int, string]()
 
+
+const RemoteEvaluation = false
+
+var dataArray: array[bool, (VariableData, Vector, int)]
+
 proc approxTree(f: LinearFormula) {.async.} =
   let s = f.serialized()
 
@@ -67,7 +72,10 @@ proc approxTree(f: LinearFormula) {.async.} =
     echo "A ", f
   # treeState[f.id] = "#3a86ff"
 
-  let t = await f.fitParamsRemote(isApprox=true)
+  when RemoteEvaluation:
+    let t = await f.fitParamsRemote(isApprox=true)
+  else:
+    let t = f.fitParams(dataArray[true][0], dataArray[true][1], dataArray[true][2])
   let comp = s.complexity()
   approxQueue.add f, t.error, comp
 
@@ -89,7 +97,10 @@ proc handleTree(f: LinearFormula) {.async.} =
 
   #let f = e.linearize()
   exprSet.add s
-  let t = await f.fitParamsRemote(isApprox=false)
+  when RemoteEvaluation:
+    let t = await f.fitParamsRemote(isApprox=false)
+  else:
+    let t = f.fitParams(dataArray[false][0], dataArray[false][1], dataArray[false][2])
 
   # echo t.linearParams
   # echo t.nonlinearParams
@@ -177,8 +188,10 @@ proc main(addresses: seq[(string, uint16)]) {.async.} =
     BasisFunction.IntPower
   }
   
-  setRemoteData(false, data.trainX, data.trainY, howMany=30)
-  setRemoteData(true, data.approxX, data.approxY, howMany=10)
+  dataArray[false] = (data.trainX, data.trainY, 30)
+  dataArray[true] = (data.approxX, data.approxY, 10)
+  setRemoteData(false, dataArray[false][0], dataArray[false][1], dataArray[false][2])
+  setRemoteData(true, dataArray[true][0], dataArray[true][1], dataArray[true][2])
 
   let emptyFormula = initLinearFormula()
   await emptyFormula.handleTree()
@@ -202,8 +215,8 @@ proc main(addresses: seq[(string, uint16)]) {.async.} =
         # tree.simplify().handleTree(data)
         approxFutures.add tree.simplify().approxTree()
         # file.writeLine(n.tree.id, ";", tree.id)
-      if i < 5:
-        await all(approxFutures)
+      # if i < 5:
+      await all(approxFutures)
 
       const ApproxQueueCoefficient = 0.4
       let totalQueueSize = mainQueue.len + approxQueue.len
@@ -212,11 +225,10 @@ proc main(addresses: seq[(string, uint16)]) {.async.} =
       for _ in 0..<toTake:
         let node = approxQueue.pop()
         exactFutures.add node.tree.handleTree()
-      asyncCheck all(approxFutures)
-      if mainQueue.len == 0:
-        await all(exactFutures)
-      else:
-        asyncCheck all(exactFutures)
+      # if mainQueue.len == 0:
+      await all(exactFutures)
+      # else:
+        # asyncCheck all(exactFutures)
 
       echo ""
       
