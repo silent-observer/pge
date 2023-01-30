@@ -1,0 +1,16 @@
+services:
+  client:
+    build: .
+    command: "/app/bin/pge server0:5000 server1:5000 server2:5000 server3:5000"
+  server0:
+    build: .
+    command: /app/bin/network/evalserver 5000
+  server1:
+    build: .
+    command: /app/bin/network/evalserver 5000
+  server2:
+    build: .
+    command: /app/bin/network/evalserver 5000
+  server3:
+    build: .
+    command: /app/bin/network/evalserver 5000

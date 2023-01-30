@@ -1,5 +1,6 @@
 import ../expressions
 from strutils import join
+from math import sqrt, PI
 
 type
   CommandKind* = enum
@@ -131,6 +132,12 @@ func callFunc(c: var IrConverter,
     funcName: string): CommandArgument {.inline.} =
   result = c.nextInter()
   s.add Command(kind: ckFuncCall, args: @[source], result: result, funcName: funcName)
+func callFunc(c: var IrConverter,
+    s: var seq[Command],
+    sources: seq[CommandArgument],
+    funcName: string): CommandArgument {.inline.} =
+  result = c.nextInter()
+  s.add Command(kind: ckFuncCall, args: sources, result: result, funcName: funcName)
 func intPower(c: var IrConverter,
     s: var seq[Command],
     source: CommandArgument,
@@ -342,6 +349,70 @@ func convert(c: var IrConverter, e: Expression,
     let minusInv = c.divCommand(result.backward, MinusOne, sqrt)
     discard c.mul(result.backward, currentDeriv, minusInv)
     result.backward[^1].result = newDeriv
+    result.backward.add childProg.backward
+  of Erf:
+    let newDeriv = c.nextInter()
+    let childProg = c.convert(e.children[0], newDeriv)
+    result.forward.add childProg.forward
+    r = c.callFunc(result.forward, x, "erf")
+    let squared = c.mul(result.backward, x, x)
+    let minusSquared = c.mul(result.backward, MinusOne, squared)
+    let exp = c.callFunc(result.backward, minusSquared, "exp")
+    let expCoef = c.mul(result.backward, constVal(2/sqrt(PI)), exp)
+    discard c.mul(result.backward, currentDeriv, expCoef)
+    result.backward[^1].result = newDeriv
+    result.backward.add childProg.backward
+  of Arctan2:
+    let newDeriv1 = c.nextInter()
+    let newDeriv2 = c.nextInter()
+    let childProg1 = c.convert(e.children[0], newDeriv1)
+    result.forward.add childProg1.forward
+    let childProg2 = c.convert(e.children[1], newDeriv2)
+    result.forward.add childProg2.forward
+    template x: untyped = childProg1.forwardResult
+    template y: untyped = childProg2.forwardResult
+    r = c.callFunc(result.forward, @[y, x], "atan2")
+    let squaredX = c.mul(result.backward, x, x)
+    let squaredY = c.mul(result.backward, y, y)
+    let denom = c.add(result.backward, squaredX, squaredY)
+    let minusY = c.mul(result.backward, MinusOne, y)
+    discard c.divCommand(result.backward, minusY, denom)
+    result.backward[^1].result = newDeriv1
+    discard c.divCommand(result.backward, x, denom)
+    result.backward[^1].result = newDeriv2
+    result.backward.add childProg1.backward
+    result.backward.add childProg2.backward
+  of Gaussian:
+    let paramIndex = c.paramIndex
+    let mean = param(paramIndex)
+    let std = param(paramIndex+1)
+    c.paramIndex += 2
+    let newDeriv = c.nextInter()
+    let childProg = c.convert(e.children[0], newDeriv)
+    result.forward.add childProg.forward
+
+    let diff = c.sub(result.forward, x, mean)
+    let frac = c.divCommand(result.forward, diff, std)
+    let fracSquared = c.mul(result.forward, frac, frac)
+    let minusFrac = c.mul(result.forward, MinusOne, fracSquared)
+    r = c.callFunc(result.forward, minusFrac, "exp")
+    let stdSquared = c.mul(result.backward, std, std)
+    let fracM = c.divCommand(result.backward, diff, stdSquared)
+    let twiceG = c.add(result.backward, r, r)
+    let deriv = c.mul(result.backward, currentDeriv, twiceG)
+    let dMean = c.mul(result.backward, deriv, fracM)
+    debugEcho "!!!"
+    c.derivatives[paramIndex] = c.add(
+        result.backward,
+        c.derivatives[paramIndex],
+        dMean)
+    discard c.mul(result.backward, MinusOne, dMean)
+    result.backward[^1].result = newDeriv
+    let dStd = c.mul(result.backward, dMean, fracM)
+    c.derivatives[paramIndex+1] = c.add(
+        result.backward,
+        c.derivatives[paramIndex+1],
+        dStd)
     result.backward.add childProg.backward
 
 func convertToIr*(e: Expression): Program =

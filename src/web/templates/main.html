@@ -1,0 +1,25 @@
+{% extends templates/basic.html %}
+{% block title %}
+Prioritized Grammar Evaluation
+{% endblock %}
+
+{% block head %}
+<script src="/static/js/main.js"></script>
+{% endblock %}
+
+{% block content %}
+
+<section>
+  <div>
+    <span>X data</span>
+    <textarea name="xdata" id="xdata" cols="30" rows="10"></textarea>
+  </div>
+  <div>
+    <span>Y data</span>
+    <textarea name="ydata" id="ydata" cols="30" rows="10"></textarea>
+  </div>
+
+  <button type="submit" id="submitbtn">Submit</button>
+</section>
+
+{% endblock %}

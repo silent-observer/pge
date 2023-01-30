@@ -67,6 +67,7 @@ func allocateRegister(a: var Allocator, skip: seq[int] = @[]): (CommandArgument,
 
 func allocate(a: var Allocator, s: var seq[Command], counter: var int) =
   var index = 0
+  # debugEcho s
   while index < s.len:
     template c: untyped = s[index]
     #if c.kind notin {ckIntPower, ckInv}:
@@ -142,7 +143,8 @@ func allocateDerivs(a: var Allocator, p: var Program) =
   for i, d in p.derivatives:
     if d.kind == cakIntermediate:
       p.replaceAll(d, CommandArgument(kind: cakDerivative, id: i))
-  
+
+func allocateForwardResult(a: var Allocator, p: var Program) =
   if p.forwardResult.kind == cakIntermediate:
     p.replaceAll(p.forwardResult, CommandArgument(kind: cakResult))
   else:
@@ -171,11 +173,12 @@ func fixMemoryArgs(s: var seq[Command]) =
         if not firstRegister:
           swap c.args[0], c.args[1]
       else:
-        s.insert(
-          Command(kind: ckMov, args: @[c.args[0]], result: c.result),
-          index
-        )
-        inc index
+        if c.args[0] != c.result:
+          s.insert(
+            Command(kind: ckMov, args: @[c.args[0]], result: c.result),
+            index
+          )
+          inc index
         if c.args[1] == c.args[0]:
           c.args[1] = c.result
         c.args[0] = c.result
@@ -187,31 +190,33 @@ func fixMemoryArgs(s: var seq[Command]) =
           assert c.kind in {ckAdd, ckMul}
           swap c.args[0], c.args[1]
       else:
-        s.insert(
-          Command(kind: ckMov, args: @[c.args[0]], result: c.result),
-          index
-        )
-        inc index
+        if c.args[0] != c.result:
+          s.insert(
+            Command(kind: ckMov, args: @[c.args[0]], result: c.result),
+            index
+          )
+          inc index
         if c.args[1] == c.args[0]:
           c.args[1] = c.result
         c.args[0] = c.result
     elif c.kind == ckFuncCall:
-      if c.args[0].id != 0:
-        s.insert(
-          Command(kind: ckMov, args: c.args,
-            result: CommandArgument(kind: cakRegister, id: 0)),
-          index
-        )
-        inc index
-        c.args[0].id = 0
-      if c.result.id != 0:
-        s.insert(
-          Command(kind: ckMov, 
-            args: @[CommandArgument(kind: cakRegister, id: 0)],
-            result: c.result),
-          index + 1
-        )
-        c.result.id = 0
+      for i in 0..<c.args.len:
+        if c.args[i].id != 0:
+          s.insert(
+            Command(kind: ckMov, args: c.args,
+              result: CommandArgument(kind: cakRegister, id: i)),
+            index
+          )
+          inc index
+          c.args[i].id = i
+        if c.result.id != i:
+          s.insert(
+            Command(kind: ckMov, 
+              args: @[CommandArgument(kind: cakRegister, id: i)],
+              result: c.result),
+            index + 1
+          )
+          c.result.id = i
     # elif c.kind in {ckInv, ckFuncCall}:
     #   if c.args[0] != c.result:
     #     s.insert(
@@ -263,6 +268,7 @@ func allocate*(p: Program): Program =
     a.registersTemporary[i] = Zero
   
   a.allocateDerivs(result)
+  a.allocateForwardResult(result)
   a.findLifetimes(result.forward & result.backward)
   var counter = 0
   a.allocate(result.forward, counter)
@@ -287,7 +293,8 @@ func allocateOnlyEval*(p: Program): Program =
     a.registers[i] = NoVar
     a.registersTemporary[i] = Zero
   
-  result.replaceAll(result.forwardResult, CommandArgument(kind: cakResult))
+  
+  a.allocateForwardResult(result)
   a.findLifetimes(result.forward)
   var counter = 0
   a.allocate(result.forward, counter)

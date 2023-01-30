@@ -10,10 +10,12 @@ export smallset, Number
 
 type
   ExprKind* {.pure.} = enum
+    # Special expressions
     Variable
     Sum
     Product
     IntPower
+    # One variable functions
     Inverse
     Exp
     Ln
@@ -22,6 +24,11 @@ type
     Cos
     Asin
     Acos
+    Erf
+    # Two variable functions
+    Arctan2
+    # Special functions
+    Gaussian
   Expression* {.acyclic.} = ref object
     case kind*: ExprKind:
       of Variable:
@@ -38,7 +45,8 @@ type
 
 const 
   TotalKinds* = high(ExprKind).int - low(ExprKind).int + 2
-  UnaryKinds* = {Inverse, Exp, Ln, Sqrt, Sin, Cos, Asin, Acos}
+  UnaryKinds* = {Inverse, Exp, Ln, Sqrt, Sin, Cos, Asin, Acos, Erf, Gaussian}
+  BinaryKinds* = {Arctan2}
 
 func structureCmp*(a, b: Expression): int =
   if a.kind != b.kind:
@@ -48,7 +56,7 @@ func structureCmp*(a, b: Expression): int =
 
   case a.kind:
   of Variable: return cmp(a.varIndex, b.varIndex)
-  of Sum, Product:
+  of Sum, Product, Arctan2:
     for i in 0..<a.children.len:
       let c = structureCmp(a.children[i], b.children[i])
       if c != 0: return c
@@ -67,13 +75,10 @@ func equivalenceCmp*(a, b: Expression): int =
 
   case a.kind:
   of Variable: return cmp(a.varIndex, b.varIndex)
-  of Sum, Product:
-    # let c1 = cmp(a.constDisabled, b.constDisabled)
-    # if c1 != 0: return c1
+  of Sum, Product, Arctan2:
     for i in 0..<a.children.len:
       let c2 = equivalenceCmp(a.children[i], b.children[i])
       if c2 != 0: return c2
-    
     return 0
   of IntPower:
     if a.power != b.power: return cmp(a.power, b.power)
@@ -97,7 +102,13 @@ func initBigExpr*(kind: ExprKind, constDisabled=false): Expression {.inline.} =
       children: initSmallSet[Expression](equivalenceCmp)
     )
 func initUnaryExpr*(kind: ExprKind): Expression {.inline.} =
-  assert(kind in Inverse..Acos, "This is not an unary expression")
+  assert(kind in UnaryKinds, "This is not an unary expression")
+  Expression(
+    kind: kind,
+    children: initSmallSetWithNoCmp[Expression]()
+  )
+func initBinaryExpr*(kind: ExprKind): Expression {.inline.} =
+  assert(kind in BinaryKinds, "This is not a binary expression")
   Expression(
     kind: kind,
     children: initSmallSetWithNoCmp[Expression]()
@@ -144,6 +155,16 @@ func eval*(e: Expression,
       inc paramIndex
     for child in e.children:
       e.lastValue *= child.eval(vars, params, paramIndex)
+  of Gaussian:
+    let mean = params[paramIndex]
+    let std = params[paramIndex+1]
+    paramIndex += 2
+    let x = e.children[0].eval(vars, params, paramIndex)
+    e.lastValue = exp(-pow((x - mean) / std, 2))
+  of Arctan2:
+    let x = e.children[0].eval(vars, params, paramIndex)
+    let y = e.children[1].eval(vars, params, paramIndex)
+    e.lastValue = arctan2(y, x)
   else:
     let x = e.children[0].eval(vars, params, paramIndex)
     case e.kind:
@@ -165,6 +186,8 @@ func eval*(e: Expression,
       e.lastValue = sin(x)
     of Acos:
       e.lastValue = cos(x)
+    of Erf:
+      e.lastValue = erf(x)
     else: discard
   result = e.lastValue
 
@@ -231,6 +254,27 @@ func evalDerivs*(e: Expression,
     e.children[0].evalDerivs(1/sqrt(1 - x.pow(2)))
   of Acos:
     e.children[0].evalDerivs(-1/sqrt(1 - x.pow(2)))
+  of Erf:
+    const coef = 2/sqrt(PI)
+    e.children[0].evalDerivs(coef*exp(-x.pow(2)))
+  of Gaussian:
+    let
+      mean = params[paramIndex]
+      std = params[paramIndex+1]
+      this = e.lastValue
+      dmean = this * 2*(x-mean) / std.pow(2)
+      dstd = this * 2*pow(x-mean, 2)/std.pow(3)
+      dx = -dmean
+    result[paramIndex] += currentDeriv * dmean
+    result[paramIndex+1] += currentDeriv * dstd
+    paramIndex += 2
+    e.children[0].evalDerivs(dx)
+  of Arctan2:
+    template y: untyped = e.children[1].lastValue
+    let r = x*x + y*y
+    e.children[0].evalDerivs(-y/r)
+    e.children[1].evalDerivs(x/r)
+
 
 func toString*(e: Expression, paramIndex: var int): string =
   template childStr: untyped = e.children[0].toString(paramIndex)
@@ -251,11 +295,17 @@ func toString*(e: Expression, paramIndex: var int): string =
     result = childStr & " ^ " & $e.power
   of Inverse:
     result = fmt"1/({childStr})"
-  of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos:
+  of Gaussian:
+    result = fmt"G({childStr};c{paramIndex};c{paramIndex+1})"
+    paramIndex += 2
+  of Arctan2:
+    template childStr2: untyped = e.children[1].toString(paramIndex)
+    result = fmt"atan2({childStr2}/{childStr})"
+  of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos, Erf:
     const nameTable = {
       Exp: "exp", Ln: "ln", Sqrt: "sqrt",
       Sin: "sin", Cos: "cos",
-      Asin: "asin", Acos: "acos"}.toTable
+      Asin: "asin", Acos: "acos", Erf: "erf"}.toTable
     result = fmt"{nameTable[e.kind]}({childStr})"
 
 func toStructureString*(e: Expression): string =
@@ -275,11 +325,16 @@ func toStructureString*(e: Expression): string =
     result = childStr & " ^ " & $e.power
   of Inverse:
     result = fmt"1/({childStr})"
-  of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos:
+  of Gaussian:
+    result = fmt"G({childStr})"
+  of Arctan2:
+    template childStr2: untyped = e.children[1].toStructureString()
+    result = fmt"atan2({childStr2}/{childStr})"
+  of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos, Erf:
     const nameTable = {
       Exp: "exp", Ln: "ln", Sqrt: "sqrt",
       Sin: "sin", Cos: "cos",
-      Asin: "asin", Acos: "acos"}.toTable
+      Asin: "asin", Acos: "acos", Erf: "erf"}.toTable
     result = fmt"{nameTable[e.kind]}({childStr})"
 
 func `$`*(e: Expression): string =
@@ -305,11 +360,17 @@ func toString*(e: Expression, params: Vector, paramIndex: var int): string =
     result = childStr & " ^ " & $e.power
   of Inverse:
     result = fmt"1/({childStr})"
-  of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos:
+  of Gaussian:
+    result = fmt"G({childStr};{params[paramIndex]:.4f};{abs(params[paramIndex+1]):.4f})"
+    paramIndex += 2
+  of Arctan2:
+    template childStr2: untyped = e.children[1].toString(params, paramIndex)
+    result = fmt"atan2({childStr2}/{childStr})"
+  of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos, Erf:
     const nameTable = {
       Exp: "exp", Ln: "ln", Sqrt: "sqrt",
       Sin: "sin", Cos: "cos",
-      Asin: "asin", Acos: "acos"}.toTable
+      Asin: "asin", Acos: "acos", Erf: "erf"}.toTable
     result = fmt"{nameTable[e.kind]}({childStr})"
 
 template copyMap*(input: Expression, f: untyped, result: untyped): untyped =
@@ -339,10 +400,12 @@ func paramCount*(e: Expression): int =
   of Variable: result = 0
   of Sum, Product:
     result = if e.constDisabled: 0 else: 1
-    for child in e.children:
-      result += child.paramCount
-  else:
-    result = e.children[0].paramCount
+  of Gaussian:
+    result = 2
+  else: discard
+
+  for child in e.children:
+    result += child.paramCount
 
 func serialize(e: Expression, result: var SerializedExpr) =
   if e.kind == Variable:
@@ -380,6 +443,10 @@ func deserializeExpr*(s: SerializedExpr, i: var int): Expression =
         result.children.add s.deserializeExpr(i)
       if i < s.len and s[i] == 1:
         inc i
+    elif kind in BinaryKinds:
+      result = initBinaryExpr(kind)
+      result.children.add s.deserializeExpr(i)
+      result.children.add s.deserializeExpr(i)
     else:
       result = initUnaryExpr(kind)
       result.children.add s.deserializeExpr(i)
@@ -397,14 +464,20 @@ func complexity*(e: SerializedExpr): int =
   var i = 0
   while i < e.len:
     if e[i] >= TotalKinds:
-      result += 2
-    elif (e[i] - 1) == IntPower.int:
-      i.inc
-      result += e[i]
-    elif (e[i] - 1) in {int(Sum), int(Product)}:
-      i.inc
-    elif (e[i] - 1) in int(Inverse)..int(Acos):
-      result += 3
+      result += 1
+    elif e[i] in {0, 1}:
+      discard
+    else:
+      let kind = ExprKind(e[i]-1)
+      if kind == IntPower:
+        i.inc
+        result += e[i]
+      elif kind in {Sum, Product}:
+        i.inc
+      elif kind == Gaussian:
+        result += 5
+      elif kind in UnaryKinds or kind in BinaryKinds:
+        result += 3
     i.inc
 
 func copyAndReplace*(e, pattern, replacement: Expression): Expression {.inline.} =

@@ -7,7 +7,7 @@ var waitingQueue: Table[TreeId, Future[VarProResult]]
 var servers: seq[AsyncSocket]
 var waitSizes: seq[int]
 
-const WaitingThreshold = 100
+const WaitingThreshold = 20
 var waitingFuture: Future[void] = nil
 
 proc readLoop(i: int) {.async.} =

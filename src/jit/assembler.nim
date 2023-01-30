@@ -32,6 +32,8 @@ type
     data*: seq[byte]
 
 const ConstArrayStart: array[4, float64] = [-0.0, 0.0, 1.0, -1.0]
+const ConstOffset = 0x50'u8
+
 
 proc absFunc(x: float64): float64 {.importc: "fabs", header: "<math.h>", cdecl.}
 proc expFunc(x: float64): float64 {.importc: "exp", header: "<math.h>", cdecl.}
@@ -41,6 +43,7 @@ proc sinFunc(x: float64): float64 {.importc: "sin", header: "<math.h>", cdecl.}
 proc cosFunc(x: float64): float64 {.importc: "cos", header: "<math.h>", cdecl.}
 proc asinFunc(x: float64): float64 {.importc: "asin", header: "<math.h>", cdecl.}
 proc acosFunc(x: float64): float64 {.importc: "acos", header: "<math.h>", cdecl.}
+proc atan2Func(y: float64, x: float64): float64 {.importc: "atan2", header: "<math.h>", cdecl.}
 
 func add32Bit(s: var seq[byte], x: uint32) =
   s.add [
@@ -85,17 +88,17 @@ func calcModRM(a: var Assembler, reg, rm: CommandArgument): seq[byte] =
   of cakZero, cakOne, cakMinusOne:
     result.add byte(0x40 or (r shl 3)) # ... r, [RAX + i*8]
     if rm.kind == cakZero:
-      result.add 64'u8 + 8'u8
+      result.add ConstOffset + 8
     elif rm.kind == cakOne:
-      result.add 64'u8 + 16'u8
+      result.add ConstOffset + 16
     elif rm.kind == cakMinusOne:
-      result.add 64'u8 + 24'u8
+      result.add ConstOffset + 24
   of cakConst:
     if rm.c notin a.additionalConsts:
       a.additionalConsts.add rm.c
     let constId = a.additionalConsts.find(rm.c) + 4
     result.add byte(0x40 or (r shl 3)) # ... r, [RAX + i*8]
-    result.add 64'u8 + 8'u8 * byte(constId)
+    result.add ConstOffset + 8'u8 * byte(constId)
   of cakIntermediate:
     assert false
 
@@ -122,7 +125,7 @@ func assemble(a: var Assembler, c: Command, result: var seq[byte]) =
       result.add [0x66'u8, 0x0F, 0x57] # xorpd $0, -0.0
       assert c.args[0].kind == cakRegister
       result.add byte(0x40 or (c.args[0].id shl 3))
-      result.add 0x40'u8
+      result.add ConstOffset
     else:
       result.add [0xF2'u8, 0x0F, 0x59] # mulsd $0, $1r
       result.add a.calcModRM(c.args[0], c.args[1])
@@ -170,6 +173,7 @@ func assemble(a: var Assembler, c: Command, result: var seq[byte]) =
     of "cos": result.add 0x28'u8
     of "asin": result.add 0x30'u8
     of "acos": result.add 0x38'u8
+    of "atan2": result.add 0x40'u8
     else: assert false, "No such function " & c.funcName
     result.add [
       0x5F'u8, 0x5E, 0x5A, 0x59, 0x58, # pop RAX, RCX, RDX, RSI, RDI
@@ -220,7 +224,9 @@ func assemble*(p: Program): AssembledCode =
     cast[uint64](sinFunc),
     cast[uint64](cosFunc),
     cast[uint64](asinFunc),
-    cast[uint64](acosFunc)
+    cast[uint64](acosFunc),
+    cast[uint64](atan2Func),
+    0
   ]
   for f in funcs:
     result.data.add64Bit f

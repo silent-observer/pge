@@ -14,6 +14,9 @@ type
     Cos
     Asin
     Acos
+    Erf
+    Atan2
+    Gaussian
   Basis* = set[BasisFunction]
 
 type BasisEntry = object
@@ -30,10 +33,13 @@ const BasisData: array[BasisFunction, BasisEntry] = [
   BasisEntry(kind: ExprKind.Cos, addConstDisabled: false, mulConstDisabled: false),
   BasisEntry(kind: ExprKind.Asin, addConstDisabled: false, mulConstDisabled: false),
   BasisEntry(kind: ExprKind.Acos, addConstDisabled: false, mulConstDisabled: false),
+  BasisEntry(kind: ExprKind.Erf, addConstDisabled: false, mulConstDisabled: false),
+  BasisEntry(kind: ExprKind.Arctan2, addConstDisabled: false, mulConstDisabled: false),
+  BasisEntry(kind: ExprKind.Gaussian, addConstDisabled: true, mulConstDisabled: true),
 ]
 
 func variableProductionRules(allowed: Basis, varCount: int): seq[Expression] =
-  for f in allowed - {BasisFunction.IntPower}:
+  for f in allowed - {BasisFunction.IntPower, BasisFunction.Atan2}:
     let data = BasisData[f]
     for v in 0..<varCount:
       result.add nested(
@@ -42,6 +48,22 @@ func variableProductionRules(allowed: Basis, varCount: int): seq[Expression] =
         initBigExpr(Product, data.mulConstDisabled),
         initVariable(v)
       )
+  if BasisFunction.Atan2 in allowed:
+    for v1 in 0..<varCount:
+      for v2 in 0..<varCount:
+        if v1 == v2: continue
+        result.add initBinaryExpr(Arctan2).withChildren(
+          nested(
+            initBigExpr(Sum, false),
+            initBigExpr(Product, false),
+            initVariable(v1)
+          ),
+          nested(
+            initBigExpr(Sum, false),
+            initBigExpr(Product, true),
+            initVariable(v2)
+          )
+        )
   if BasisFunction.IntPower in allowed:
     for v in 0..<varCount:
       result.add initIntPower(2).withChildren(initVariable(v))

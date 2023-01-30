@@ -1,0 +1,5 @@
+bin/*
+*.txt
+callgrind.*
+.vscode/*
+*.csv

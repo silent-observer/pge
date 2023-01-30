@@ -3,10 +3,12 @@ import expressions, formula, paramgenerator
 import jit/jit
 import sugar
 from fenv import epsilon
-from math import sum, isNaN, exp
+from math import sum, isNaN, exp, sqrt
 #import nimprof
 from algorithm import fill
 from sequtils import map, toSeq
+
+import random
 #from macros import expandMacro
 
 const EvalJit = true
@@ -143,7 +145,7 @@ proc fillData(programs: seq[JitProgram],
 
   fVals = phi * c
   let r = y - fVals
-  result = r.norm()
+  result = r.norm() / sqrt(n.float)
 
   # debugEcho "r = ", r
 
@@ -350,7 +352,7 @@ proc fitParams(programs: seq[JitProgram],
     # debugEcho delta
     # echo abs(delta).max()
     if absMax(delta) < 1e-9: break
-    if err > 1e-3 and absMax(delta) < 1e-4: break
+    if err > 1e-4 and absMax(delta) < 1e-4: break
     # echo "!!!"
 
     var newParams = params + delta
@@ -359,7 +361,7 @@ proc fitParams(programs: seq[JitProgram],
 
     # echo "-> ", newParams, " ", newErr
 
-    if newErr < 1e-9: break
+    if newErr < 1e-10: break
     if newErr < err:
       params = newParams
       # echo "-> ", params
@@ -404,7 +406,7 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector,
     if fVals.len == 0:
       result.error = Inf
     else:
-      result.error = norm(fVals - y)
+      result.error = norm(fVals - y) / sqrt(n.float)
     return
   else:
     result.error = Inf
@@ -416,27 +418,64 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector,
       # echo t.error, " -> ", params
       if t.error < result.error:
         result = t
-        if result.error < 1e-7: break
+        if result.error < 1e-8: break
 
 if isMainModule:
-  # disableProfiling()
-  let x = @[-2.0, -1.0, 0.0, 1.0, 2.0]
-  let vars = toVariableData(@[@[-2.0], @[-1.0], @[0.0], @[1.0], @[2.0]])
-  let y = x.map(x => exp(1 * x) + exp(-1 * x)).vector
-  echo "x = ", x
-  echo "vars = ", vars
-  echo "y = ", y
+  var trainX = initVariableData(2)
+  var trainY = vector(100)
+  for i in 0..<100:
+    let x = rand(1.0..4.0).Number
+    let y = rand(1.0..4.0).Number
+    # let z = rand(1.0..4.0).Number
+    # let w = rand(1.0..4.0).Number
+    # let err = gauss(sigma=0.001).Number
+    let f = x*x + y*y - 2 * x * y + 0.5 * x - 1.5 * y + 3
+    #let f = exp(x) - 0.5 * exp(-0.5 * x)
+    # let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0
+    #let f = exp(0.3 * x + 0.2 * y) + exp(0.3 * y) - 0.5
+    # let f = x*y*y + exp(x)/((1+w))
+    #let f = exp(-0.2*x)*sin(5*x) + x*y
+    trainX.add @[x, y]
+    trainY[i] = f
 
+  # disableProfiling()
+  # let x = @[-2.0, -1.0, 0.0, 1.0, 2.0]
+  # let vars = toVariableData(@[@[-2.0], @[-1.0], @[0.0], @[1.0], @[2.0]])
+  # let y = x.map(x => exp(1 * x) + exp(-1 * x)).vector
+  echo "x = ", trainX
+  # echo "vars = ", vars
+  echo "y = ", trainY
+
+  # let f = initLinearFormula(
+  #   initBigExpr(Product, constDisabled=true).nested(
+  #     initUnaryExpr(ExprKind.Exp),
+  #     initBigExpr(Product),
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product, constDisabled=true).nested(
+  #     initUnaryExpr(ExprKind.Exp),
+  #     initBigExpr(Product),
+  #     initVariable(0)
+  #   )
+  # )
   let f = initLinearFormula(
     initBigExpr(Product, constDisabled=true).nested(
-      initUnaryExpr(ExprKind.Exp),
-      initBigExpr(Product),
+      initIntPower(2),
       initVariable(0)
     ),
     initBigExpr(Product, constDisabled=true).nested(
-      initUnaryExpr(ExprKind.Exp),
-      initBigExpr(Product),
+      initIntPower(2),
+      initVariable(1)
+    ),
+    initBigExpr(Product, constDisabled=true).withChildren(
+      initVariable(0),
+      initVariable(1)
+    ),
+    initBigExpr(Product, constDisabled=true).withChildren(
       initVariable(0)
+    ),
+    initBigExpr(Product, constDisabled=true).withChildren(
+      initVariable(1)
     )
   )
   echo f
@@ -447,7 +486,7 @@ if isMainModule:
   #for i in 0..<1000:
   # if i mod 100 == 0:
   #   echo i
-  let t = f.fitParams(vars, y)
+  let t = f.fitParams(trainX, trainY)
   echo t
   #echo getMonoTime() - startTime
   #echo t
