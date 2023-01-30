@@ -36,14 +36,14 @@ proc compileUncached(e: Expression): JitProgram =
     codeOnlyEval = p3OnlyEval.assemble()
     totalCode = codeOnlyEval.prog & codeFull.prog
 
-  echo e
-  echo p1
-  echo p2
-  echo p3Full
+  # echo e
+  # echo p1
+  # echo p2
+  # echo p3Full
 
-  for b in totalCode:
-    stdout.write("" & b.toHex() & " ")
-  echo ""
+  # for b in totalCode:
+  #   stdout.write("" & b.toHex() & " ")
+  # echo ""
 
   result.length = totalCode.len
   result.codePage = mmap(

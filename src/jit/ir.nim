@@ -401,7 +401,6 @@ func convert(c: var IrConverter, e: Expression,
     let twiceG = c.add(result.backward, r, r)
     let deriv = c.mul(result.backward, currentDeriv, twiceG)
     let dMean = c.mul(result.backward, deriv, fracM)
-    debugEcho "!!!"
     c.derivatives[paramIndex] = c.add(
         result.backward,
         c.derivatives[paramIndex],

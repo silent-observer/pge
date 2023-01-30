@@ -33,7 +33,7 @@ type SufferingFromSuccessException* = object of CatchableError
   pgeResult*: PgeResult
 
 const PeekCoefficient = 0.1
-const EchoIntermediate = true
+const EchoIntermediate = false
 const RemoteEvaluation* = false
 
 proc generateData(): Data =
@@ -45,7 +45,7 @@ proc generateData(): Data =
   result.approxY = vector(PeekN)
   # result.errorBound = 0.1
   for i in 0..<N:
-    let x = rand(0.0..4.0).Number
+    let x = rand(-4.0..4.0).Number
     # let y = exp(rand(-2.0..2.0).Number)
     # let z = rand(1.0..4.0).Number
     # let w = rand(1.0..4.0).Number
@@ -57,7 +57,8 @@ proc generateData(): Data =
     # let f = ln(x)
     # let f = 1/(1/x + y/z)
     # let f = exp(-x*x/(2*y))/sqrt(2*PI*y)
-    let f = exp(-(x - 2)*(x - 2) / 0.25)
+    let f = exp(-pow((x*x + x - 4) / 4, 2))
+    echo (x, f)
     #let f = exp(0.3 * x + 0.2 * y) + exp(0.3 * y) - 0.5
     # let f = x*y*y + exp(x)/((1+w))
     #let f = exp(-0.2*x)*sin(5*x) + x*y

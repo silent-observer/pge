@@ -296,8 +296,9 @@ func toString*(e: Expression, paramIndex: var int): string =
   of Inverse:
     result = fmt"1/({childStr})"
   of Gaussian:
-    result = fmt"G({childStr};c{paramIndex};c{paramIndex+1})"
+    let p = paramIndex
     paramIndex += 2
+    result = fmt"G({childStr};c{p};c{p+1})"
   of Arctan2:
     template childStr2: untyped = e.children[1].toString(paramIndex)
     result = fmt"atan2({childStr2}/{childStr})"
@@ -361,8 +362,9 @@ func toString*(e: Expression, params: Vector, paramIndex: var int): string =
   of Inverse:
     result = fmt"1/({childStr})"
   of Gaussian:
-    result = fmt"G({childStr};{params[paramIndex]:.4f};{abs(params[paramIndex+1]):.4f})"
+    let p = paramIndex
     paramIndex += 2
+    result = fmt"G({childStr};{params[p]:.4f};{abs(params[p+1]):.4f})"
   of Arctan2:
     template childStr2: untyped = e.children[1].toString(params, paramIndex)
     result = fmt"atan2({childStr2}/{childStr})"
