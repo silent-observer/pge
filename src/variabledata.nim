@@ -19,6 +19,12 @@ func add*(d: var VariableData, row: seq[Number]) =
   d.data[].add row
   inc d.rows
 
+func add*(d: var VariableData, slice: VariableSlice) =
+  assert slice.varCount == d.varCount, "Row length doesn't match!"
+  let start = slice.row * slice.varCount
+  d.data[].add slice.data[][start ..< start+slice.varCount]
+  inc d.rows
+
 func toVariableData*(data: seq[seq[Number]]): VariableData =
   result = initVariableData(data[0].len)
   for row in data:

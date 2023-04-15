@@ -209,14 +209,14 @@ func fixMemoryArgs(s: var seq[Command]) =
           )
           inc index
           c.args[i].id = i
-        if c.result.id != i:
-          s.insert(
-            Command(kind: ckMov, 
-              args: @[CommandArgument(kind: cakRegister, id: i)],
-              result: c.result),
-            index + 1
-          )
-          c.result.id = i
+      if c.result.id != 0:
+        s.insert(
+          Command(kind: ckMov, 
+            args: @[CommandArgument(kind: cakRegister, id: 0)],
+            result: c.result),
+          index + 1
+        )
+        c.result.id = 0
     # elif c.kind in {ckInv, ckFuncCall}:
     #   if c.args[0] != c.result:
     #     s.insert(

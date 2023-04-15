@@ -32,14 +32,16 @@ proc compileUncached(e: Expression): JitProgram =
     p2 = p1.optimize()
     p3Full = p2.allocate()
     p3OnlyEval = p2.allocateOnlyEval()
-    codeFull = p3Full.assemble()
-    codeOnlyEval = p3OnlyEval.assemble()
-    totalCode = codeOnlyEval.prog & codeFull.prog
 
   # echo e
   # echo p1
   # echo p2
   # echo p3Full
+
+  let
+    codeFull = p3Full.assemble()
+    codeOnlyEval = p3OnlyEval.assemble()
+    totalCode = codeOnlyEval.prog & codeFull.prog
 
   # for b in totalCode:
   #   stdout.write("" & b.toHex() & " ")

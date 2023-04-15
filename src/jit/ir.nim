@@ -176,7 +176,7 @@ func `$`*(c: Command): string =
   of ckInv:
     result = $c.result & " <- inv(" & $c.args[0] & ")"
   of ckFuncCall:
-    result = $c.result & " <- " & c.funcName & "(" & $c.args[0] & ")"
+    result = $c.result & " <- " & c.funcName & "(" & c.args.join(", ") & ")"
   of ckMov:
     result = $c.result & " <- " & $c.args[0]
   of ckPush:
@@ -369,17 +369,17 @@ func convert(c: var IrConverter, e: Expression,
     result.forward.add childProg1.forward
     let childProg2 = c.convert(e.children[1], newDeriv2)
     result.forward.add childProg2.forward
-    template x: untyped = childProg1.forwardResult
-    template y: untyped = childProg2.forwardResult
+    template x: untyped = childProg2.forwardResult
+    template y: untyped = childProg1.forwardResult
     r = c.callFunc(result.forward, @[y, x], "atan2")
     let squaredX = c.mul(result.backward, x, x)
     let squaredY = c.mul(result.backward, y, y)
     let denom = c.add(result.backward, squaredX, squaredY)
     let minusY = c.mul(result.backward, MinusOne, y)
     discard c.divCommand(result.backward, minusY, denom)
-    result.backward[^1].result = newDeriv1
-    discard c.divCommand(result.backward, x, denom)
     result.backward[^1].result = newDeriv2
+    discard c.divCommand(result.backward, x, denom)
+    result.backward[^1].result = newDeriv1
     result.backward.add childProg1.backward
     result.backward.add childProg2.backward
   of Gaussian:

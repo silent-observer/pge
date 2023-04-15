@@ -286,7 +286,9 @@ proc fitParams(programs: seq[JitProgram],
     paramCounts: seq[int],
     vars: VariableData,
     y: Vector,
-    startParams: Vector): VarProResult =
+    startParams: Vector,
+    earlyStop: bool = true,
+    stepsMax: int = 50): VarProResult =
   let (n, varCount) = (vars.rows, vars.varCount)
   let p = startParams.len
   let pl = programs.len + 1
@@ -315,7 +317,7 @@ proc fitParams(programs: seq[JitProgram],
   var consecutiveFail = 0
   var step = 0
 
-  while step < 50:
+  while step < stepsMax:
     var jj = jacobian.gramMatrix()
     for i in 0..<jj.Matrix.rows:
       jj.Matrix[i, i] *= 1.0 + lambda
@@ -351,8 +353,12 @@ proc fitParams(programs: seq[JitProgram],
         delta += 0.5 * accel
     # debugEcho delta
     # echo abs(delta).max()
-    if absMax(delta) < 1e-9: break
-    if err > 1e-4 and absMax(delta) < 1e-4: break
+    if earlyStop:
+      if absMax(delta) < 1e-11: break
+      #if err > 1e-4 and absMax(delta) < 1e-4: break
+    # else:
+    #   echo step, ": ", err, " ", absMax(delta), " ", lambda
+    #   echo params, " + ", delta
     # echo "!!!"
 
     var newParams = params + delta
@@ -361,7 +367,7 @@ proc fitParams(programs: seq[JitProgram],
 
     # echo "-> ", newParams, " ", newErr
 
-    if newErr < 1e-10: break
+    if earlyStop and newErr < 1e-10: break
     if newErr < err:
       params = newParams
       # echo "-> ", params
@@ -387,7 +393,7 @@ proc fitParams(programs: seq[JitProgram],
   (linearParams: linearParams, nonlinearParams: params, error: err)
 
 proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, 
-    howMany = 30): VarProResult =
+    howMany = 30, earlyStop = true, stepsMax = 50): VarProResult =
   var paramCount = 0
   var paramCounts = newSeqOfCap[int](f.terms.len)
   for term in f.terms:
@@ -414,7 +420,7 @@ proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector,
     for params in generateInitialParams(paramCount, howMany):
       # debugEcho "!", counter, " ", params
       inc counter
-      let t = fitParams(programs, paramCounts, vars, y, params)
+      let t = fitParams(programs, paramCounts, vars, y, params, earlyStop, stepsMax)
       # echo t.error, " -> ", params
       if t.error < result.error:
         result = t

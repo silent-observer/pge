@@ -44,6 +44,7 @@ proc cosFunc(x: float64): float64 {.importc: "cos", header: "<math.h>", cdecl.}
 proc asinFunc(x: float64): float64 {.importc: "asin", header: "<math.h>", cdecl.}
 proc acosFunc(x: float64): float64 {.importc: "acos", header: "<math.h>", cdecl.}
 proc atan2Func(y: float64, x: float64): float64 {.importc: "atan2", header: "<math.h>", cdecl.}
+proc erfFunc(x: float64): float64 {.importc: "erf", header: "<math.h>", cdecl.}
 
 func add32Bit(s: var seq[byte], x: uint32) =
   s.add [
@@ -174,6 +175,7 @@ func assemble(a: var Assembler, c: Command, result: var seq[byte]) =
     of "asin": result.add 0x30'u8
     of "acos": result.add 0x38'u8
     of "atan2": result.add 0x40'u8
+    of "erf": result.add 0x48'u8
     else: assert false, "No such function " & c.funcName
     result.add [
       0x5F'u8, 0x5E, 0x5A, 0x59, 0x58, # pop RAX, RCX, RDX, RSI, RDI
@@ -226,7 +228,7 @@ func assemble*(p: Program): AssembledCode =
     cast[uint64](asinFunc),
     cast[uint64](acosFunc),
     cast[uint64](atan2Func),
-    0
+    cast[uint64](erfFunc)
   ]
   for f in funcs:
     result.data.add64Bit f

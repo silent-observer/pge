@@ -95,9 +95,9 @@ func deserializeFormula*(s: SerializedExpr): LinearFormula =
 func toString*(f: LinearFormula, linearParams, nonlinearParams: Vector): string =
   var paramIndex = 0
   for i, term in f.terms:
-    result &= fmt"{linearParams[i]:.4f}" & " * " & 
+    result &= fmt"{linearParams[i]:.10f}" & " * " & 
       term.e.toString(nonlinearParams, paramIndex) & " + "
-  result &= fmt"{linearParams[f.terms.len]:.4f}"
+  result &= fmt"{linearParams[f.terms.len]:.10f}"
 
 when isMainModule:
   let e1 = initBigExpr(Product).withChildren(

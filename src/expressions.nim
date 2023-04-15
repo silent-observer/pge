@@ -162,8 +162,8 @@ func eval*(e: Expression,
     let x = e.children[0].eval(vars, params, paramIndex)
     e.lastValue = exp(-pow((x - mean) / std, 2))
   of Arctan2:
-    let x = e.children[0].eval(vars, params, paramIndex)
-    let y = e.children[1].eval(vars, params, paramIndex)
+    let y = e.children[0].eval(vars, params, paramIndex)
+    let x = e.children[1].eval(vars, params, paramIndex)
     e.lastValue = arctan2(y, x)
   else:
     let x = e.children[0].eval(vars, params, paramIndex)
@@ -270,10 +270,11 @@ func evalDerivs*(e: Expression,
     paramIndex += 2
     e.children[0].evalDerivs(dx)
   of Arctan2:
-    template y: untyped = e.children[1].lastValue
+    template x: untyped = e.children[1].lastValue
+    template y: untyped = e.children[0].lastValue
     let r = x*x + y*y
-    e.children[0].evalDerivs(-y/r)
-    e.children[1].evalDerivs(x/r)
+    e.children[0].evalDerivs(x/r)
+    e.children[1].evalDerivs(-y/r)
 
 
 func toString*(e: Expression, paramIndex: var int): string =
@@ -301,7 +302,7 @@ func toString*(e: Expression, paramIndex: var int): string =
     result = fmt"G({childStr};c{p};c{p+1})"
   of Arctan2:
     template childStr2: untyped = e.children[1].toString(paramIndex)
-    result = fmt"atan2({childStr2}/{childStr})"
+    result = fmt"atan2({childStr};{childStr2})"
   of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos, Erf:
     const nameTable = {
       Exp: "exp", Ln: "ln", Sqrt: "sqrt",
@@ -330,7 +331,7 @@ func toStructureString*(e: Expression): string =
     result = fmt"G({childStr})"
   of Arctan2:
     template childStr2: untyped = e.children[1].toStructureString()
-    result = fmt"atan2({childStr2}/{childStr})"
+    result = fmt"atan2({childStr};{childStr2})"
   of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos, Erf:
     const nameTable = {
       Exp: "exp", Ln: "ln", Sqrt: "sqrt",
@@ -350,7 +351,7 @@ func toString*(e: Expression, params: Vector, paramIndex: var int): string =
   of Sum, Product:
     if e.constDisabled: result = ""
     else:
-      result = fmt"{params[paramIndex]:.4f}" & (if e.kind == Sum: " + " else: " * ")
+      result = fmt"{params[paramIndex]:.10f}" & (if e.kind == Sum: " + " else: " * ")
       inc paramIndex
     
     let children = collect(newSeqOfCap(e.children.len)):
@@ -367,7 +368,7 @@ func toString*(e: Expression, params: Vector, paramIndex: var int): string =
     result = fmt"G({childStr};{params[p]:.4f};{abs(params[p+1]):.4f})"
   of Arctan2:
     template childStr2: untyped = e.children[1].toString(params, paramIndex)
-    result = fmt"atan2({childStr2}/{childStr})"
+    result = fmt"atan2({childStr};{childStr2})"
   of Exp, Ln, Sqrt, Sin, Cos, Asin, Acos, Erf:
     const nameTable = {
       Exp: "exp", Ln: "ln", Sqrt: "sqrt",

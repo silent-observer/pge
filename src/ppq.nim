@@ -20,6 +20,7 @@ type
 type
   ParetoData = object
     text*: string
+    formula*: LinearFormula
     error*: Number
     complexity*: int
   ParetoFront* = object
@@ -60,6 +61,7 @@ func len*(ppq: ParetoPriorityQueue): int {.inline.} = ppq.size
 
 func add*(pf: var ParetoFront,
     text: string,
+    formula: LinearFormula,
     error: Number,
     complexity: int) =
   let index = complexity - MinComplexity
@@ -68,6 +70,7 @@ func add*(pf: var ParetoFront,
   if pf.data[index].text == "" or error < pf.data[index].error:
     pf.data[index]  = ParetoData(
       text: text,
+      formula: formula,
       error: error,
       complexity: complexity
     )

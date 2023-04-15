@@ -34,7 +34,7 @@ type SufferingFromSuccessException* = object of CatchableError
 
 const PeekCoefficient = 0.1
 const EchoIntermediate = false
-const RemoteEvaluation* = false
+const RemoteEvaluation* = true
 
 proc generateData(): Data =
   const N = 100
@@ -45,11 +45,12 @@ proc generateData(): Data =
   result.approxY = vector(PeekN)
   # result.errorBound = 0.1
   for i in 0..<N:
-    let x = rand(-4.0..4.0).Number
+    let x = rand(1.0..3.0).Number
+    let y = rand(-3.0..3.0).Number
     # let y = exp(rand(-2.0..2.0).Number)
     # let z = rand(1.0..4.0).Number
     # let w = rand(1.0..4.0).Number
-    let err = gauss(sigma=0.1).Number
+    let err = gauss(sigma=0.01).Number
     # let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
     #let f = exp(x) - 0.5 * exp(-0.5 * x)
     # let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0 + err
@@ -57,8 +58,9 @@ proc generateData(): Data =
     # let f = ln(x)
     # let f = 1/(1/x + y/z)
     # let f = exp(-x*x/(2*y))/sqrt(2*PI*y)
-    let f = exp(-pow((x*x + x - 4) / 4, 2))
-    echo (x, f)
+    #let f = arctan2(y, x)
+    # let f = sin(x) + sin(y*y)
+    let f = exp(-x) * sin(PI/4 + 2*PI*x) + err#sqrt(x*x + y*y)
     #let f = exp(0.3 * x + 0.2 * y) + exp(0.3 * y) - 0.5
     # let f = x*y*y + exp(x)/((1+w))
     #let f = exp(-0.2*x)*sin(5*x) + x*y
@@ -81,37 +83,60 @@ proc readData(filename: string): Data =
   defer: f.close()
 
   let N = f.readLine().parseInt()
-  let PeekN = min(10, int(PeekCoefficient * N.float))
 
   result.trainX = initVariableData(VarCount)
   result.approxX = initVariableData(VarCount)
   result.trainY = vector(N)
-  result.approxY = vector(PeekN)
   for i in 0..<N:
     let l = f.readLine().split('\t')
+    # result.trainX.add @[l[0].parseFloat(), l[1].parseFloat(), l[2].parseFloat()]
     result.trainX.add @[l[0].parseFloat()]
-    result.trainY[i] = l[1].parseFloat()
+    result.trainY[i] = l[^1].parseFloat()
+
+  let PeekN = max(N, min(10, int(PeekCoefficient * N.float)))
+  result.approxY = vector(PeekN)
+  
   var indexList = toSeq(0..<N)
   indexList.shuffle()
   for i in 0..<PeekN:
     let j = indexList[i]
-    result.approxX.add @[result.trainX[j][0]]
+    result.approxX.add result.trainX[j]
     result.approxY[i] = result.trainY[j]
 
+  result.errorBound = 1e-7
 
 var dataArray: array[bool, (VariableData, Vector, int)]
 var expectedError = 1e-7
+
+proc fullEval(f: LinearFormula) =
+  let s = f.serialized()
+  let t = f.fitParams(dataArray[false][0], dataArray[false][1],
+      100, earlyStop=false, stepsMax=200)
+  let text =
+    if t.error > 1e9: $f
+    else: f.toString(t.linearParams, t.nonlinearParams)
+  let comp = s.complexity()
+
+  echo text
+  echo fmt"Error: {t.error:.3e}"
+  echo fmt"Log error: {log10(t.error):.2f}"
+  echo fmt"Complexity: {comp}"
+  echo fmt"Functions evaluated: {functionsFit}"
+  echo fmt"Total time: {getMonoTime() - startTime}"
+  echo fmt"Average fills: {totalFills.float / totalTries.float}"
+  echo fmt"Average steps: {totalSteps.float / totalTries.float}"
+  echo fmt"Total tries: {totalTries}"
 
 proc approxTree(f: LinearFormula) {.async.} =
   let s = f.serialized()
 
   if s in exprSet:
-    when EchoIntermediate:
-      echo "X ", f
+    # when EchoIntermediate:
+    #   echo "X ", f
     # treeState[f.id] = "#f1faee"
     return
-  when EchoIntermediate:
-    echo "A ", f
+  # when EchoIntermediate:
+  #   echo "A ", f
   # treeState[f.id] = "#3a86ff"
 
   when RemoteEvaluation:
@@ -128,8 +153,8 @@ proc handleTree(f: LinearFormula) {.async.} =
   let s = f.serialized()
 
   if s in exprSet:
-    when EchoIntermediate:
-      echo "X ", f
+    # when EchoIntermediate:
+    #   echo "X ", f
     # treeState[f.id] = "#f1faee"
     return
   # treeState[f.id] = "#4f772d"
@@ -151,21 +176,13 @@ proc handleTree(f: LinearFormula) {.async.} =
   inc functionsFit
 
   when EchoIntermediate:
-    echo "> ", f, "    ", t.error, " ", log10(t.error)
+    echo fmt"> {log10(t.error):.2f}", "\t", f
 
   if t.error < expectedError:
     echo ""
     echo ""
     echo "!!! Found solution (very small error) !!!"
-    echo text
-    echo fmt"Error: {t.error:.3e}"
-    echo fmt"Log error: {log10(t.error):.2f}"
-    echo fmt"Complexity: {comp}"
-    echo fmt"Functions evaluated: {functionsFit}"
-    echo fmt"Total time: {getMonoTime() - startTime}"
-    echo fmt"Average fills: {totalFills.float / totalTries.float}"
-    echo fmt"Average steps: {totalSteps.float / totalTries.float}"
-    echo fmt"Total tries: {totalTries}"
+    f.fullEval()
     # file.close()
 
     # fileMeta.writeLine "id;node_color"
@@ -182,7 +199,7 @@ proc handleTree(f: LinearFormula) {.async.} =
       totalTime: getMonoTime() - startTime
     )
     raise e
-  front.add text, t.error, comp
+  front.add text, f, t.error, comp
   mainQueue.add f, t.error, comp
   #echo " -> ", log10(t.error)
 
@@ -211,12 +228,7 @@ proc checkSuddenDrop() =
     echo ""
     echo ""
     echo "!!! Found solution (high slope) !!!"
-    echo d.text
-    echo fmt"Error: {d.error:.3e}"
-    echo fmt"Log error: {log10(d.error):.2f}"
-    echo fmt"Complexity: {d.complexity}"
-    echo fmt"Functions evaluated: {functionsFit}"
-    echo fmt"Total time: {getMonoTime() - startTime}"
+    d.formula.fullEval()
 
     var e = newException(SufferingFromSuccessException, "Success!")
     e.pgeResult = PgeResult(
@@ -247,13 +259,14 @@ proc calculatePge*(data: Data, addresses: seq[(string, uint16)],
 
   startTime = getMonoTime()
   const basis = {
-    # BasisFunction.Exp,
-    # BasisFunction.Inverse,
+    BasisFunction.Exp,
+    BasisFunction.Inverse,
     BasisFunction.IntPower,
-    BasisFunction.Gaussian
+    # BasisFunction.Gaussian
+    #BasisFunction.Atan2
     # BasisFunction.Sqrt
     # BasisFunction.Ln
-    # BasisFunction.Sin,
+    #BasisFunction.Sin,
     # BasisFunction.Cos
   }
   
@@ -311,8 +324,8 @@ Complexity: {n.complexity}"""
         checkSuddenDrop()
 
 when isMainModule:
-  let data = generateData()
-  # let data = readData("тест4.txt")
+  # let data = generateData()
+  let data = readData("erlang_a5b4.txt")
   # let file = openFileStream("data.txt", fmWrite)
   # for i in 0..<100:
   #   file.writeLine data.trainX[i][0], "\t", data.trainX[i][1]
