@@ -1,8 +1,12 @@
 import ../expressions
 from strutils import join
 from math import sqrt, PI
+import cpuwhat
 
 type
+  SimdCapability* = enum
+    NoCapability
+    Avx
   CommandKind* = enum
     ckMov
     ckNop
@@ -72,6 +76,13 @@ func `==`*(a, b: CommandArgument): bool =
       cakDerivative:
     a.id == b.id
   else: true
+
+func determineSimdCapability*(): SimdCapability =
+  {.cast(noSideEffect).}:
+    if hasAVX():
+      Avx
+    else:
+      NoCapability
 
 func nextInter(c: var IrConverter): CommandArgument {.inline.} =
   result = CommandArgument(kind: cakIntermediate, id: c.nextIntermediate)

@@ -1,6 +1,6 @@
 import matrix, variabledata
 import expressions, formula, paramgenerator
-import jit/jit
+import jit/jit, jit/simddata, jit/alignedseq
 import sugar
 from fenv import epsilon
 from math import sum, isNaN, exp, sqrt
@@ -17,9 +17,14 @@ var totalFills*: int64 = 0
 var totalSteps*: int64 = 0
 var totalTries*: int64 = 0
 
+when AllowSimd:
+  type VariableDataInput = SimdData
+else:
+  type VariableDataInput = VariableData
+
 proc fillData(programs: seq[JitProgram],
     paramCounts: seq[int],
-    vars: VariableData,
+    vars: VariableDataInput,
     nlParams, y: Vector,
     n, varCount, p, pl: int,
     jacobian: var Matrix,
@@ -32,21 +37,45 @@ proc fillData(programs: seq[JitProgram],
   var phi = matrix(n, pl)
   var derivs = matrix(n, p)
   
-  var derivsRow = vector(p)
+  
+
+  when AllowSimd:
+    let nlParamsSimd = nlParams.toSimd(simdWidth)
+    # debugEcho nlParamsSimd, " ", paramCounts
+    var derivsRows = initSimdVector(p, simdWidth)
+    var vals = initSimdVector(1, simdWidth)
+  else:
+    var derivsRow = vector(p)
   # var testDerivsRow = vector(p)
-  for i in 0..<n:
-    derivsRow.data.fill(0.0)
+  for i in countup(0, n-1, simdWidth):
+    derivsRows.data.fill(0.0)
     # testDerivsRow.data.fill(0.0)
     var paramIndex = 0
     for k in 0..<pl-1:
       # debugEcho vars[i, _].squeeze(0)
       when EvalJit:
-        let val = programs[k].evalAll(vars[i], nlParams, paramIndex, derivsRow)
-        if isNaN(val) or abs(val) > 1e10:
-          # debugEcho "NaNs!"
-          return Inf
+        when AllowSimd:
+          programs[k].evalAll(vars[i], nlParamsSimd, paramIndex, derivsRows, vals)
+          for index in 0..<simdWidth:
+            if i+index >= n:
+              break
+            let val = vals.data[index]
+            if isNaN(val) or abs(val) > 1e10:
+              # debugEcho "NaNs!"
+              return Inf
+        else:
+          let val = programs[k].evalAll(vars[i], nlParams, paramIndex, derivsRow)
+          if isNaN(val) or abs(val) > 1e10:
+            # debugEcho "NaNs!"
+            return Inf
 
-        phi[i, k] = val
+        when AllowSimd:
+          for index in 0..<simdWidth:
+            if i+index >= n:
+              break
+            phi[i+index, k] = vals.data[index]
+        else:
+          phi[i, k] = val
         paramIndex += paramCounts[k]
 
         # let startParamIndex = paramIndex
@@ -77,9 +106,18 @@ proc fillData(programs: seq[JitProgram],
         paramIndex = startParamIndex
         f.terms[k].e.evalDerivs(vars[i], nlParams, paramIndex, derivsRow)
     # debugEcho derivsRow
-    derivs.setRow(derivsRow, i)
+    when AllowSimd:
+      derivs.setRows(derivsRows, i)
+    else:
+      derivs.setRow(derivsRow, i)
     
-    phi[i, pl-1] = 1
+    when AllowSimd:
+      for index in 0..<simdWidth:
+        if i+index >= n:
+          break
+        phi[i+index, pl-1] = 1
+    else:
+      phi[i, pl-1] = 1
   # for i in 0..<n:
   #   var paramIndex = 0
   #   for k in 0..<pl-1:
@@ -181,23 +219,36 @@ proc fillData(programs: seq[JitProgram],
 
 proc evalOnly(programs: seq[JitProgram],
     paramCounts: seq[int],
-    vars: VariableData,
+    vars: VariableDataInput,
     nlParams, y: Vector,
     n, varCount, p, pl: int, linearParams: var Vector): Vector =
   if absMax(nlParams) > 1e8:
     return vector(0)
   var phi = matrix(n, pl)
+  when AllowSimd:
+    let nlParamsSimd = nlParams.toSimd(simdWidth)
+    var vals = initSimdVector(1, simdWidth)
   # var derivs = zeros[Number](n, p)
-  for i in 0..<n:
+  for i in countup(0, n-1, simdWidth):
     var paramIndex = 0
     for k in 0..<pl-1:
       when EvalJit:
-        let val = programs[k].eval(vars[i], paramIndex, nlParams)
-        if isNaN(val) or abs(val) > 1e10:
-          # debugEcho "NaNs!"
-          return vector(0)
-        phi[i, k] = val
-        paramIndex += paramCounts[k]
+        when AllowSimd:
+          programs[k].eval(vars[i], paramIndex, nlParamsSimd, vals)
+          for index in 0..<simdWidth:
+            let val = vals.data[index]
+            if isNaN(val) or abs(val) > 1e10:
+              # debugEcho "NaNs!"
+              return vector(0)
+            phi[i+index, k] = val
+          paramIndex += paramCounts[k]
+        else:
+          let val = programs[k].eval(vars[i], paramIndex, nlParams)
+          if isNaN(val) or abs(val) > 1e10:
+            # debugEcho "NaNs!"
+            return vector(0)
+          phi[i, k] = val
+          paramIndex += paramCounts[k]
       else:
       # debugEcho vars[i, _].squeeze(0)
       # let startParamIndex = paramIndex
@@ -284,7 +335,7 @@ type VarProResult* = tuple[
 
 proc fitParams(programs: seq[JitProgram],
     paramCounts: seq[int],
-    vars: VariableData,
+    vars: VariableDataInput,
     y: Vector,
     startParams: Vector,
     earlyStop: bool = true,
@@ -392,7 +443,7 @@ proc fitParams(programs: seq[JitProgram],
   totalSteps += step
   (linearParams: linearParams, nonlinearParams: params, error: err)
 
-proc fitParams*(f: LinearFormula, vars: VariableData, y: Vector, 
+proc fitParams*(f: LinearFormula, vars: VariableDataInput, y: Vector, 
     howMany = 30, earlyStop = true, stepsMax = 50): VarProResult =
   var paramCount = 0
   var paramCounts = newSeqOfCap[int](f.terms.len)
@@ -492,7 +543,7 @@ if isMainModule:
   #for i in 0..<1000:
   # if i mod 100 == 0:
   #   echo i
-  let t = f.fitParams(trainX, trainY)
+  let t = f.fitParams(trainX.toSimd(simdWidth), trainY)
   echo t
   #echo getMonoTime() - startTime
   #echo t

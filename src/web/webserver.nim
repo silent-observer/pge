@@ -44,8 +44,11 @@ proc handleSendData(req: Request, s: ServerData) {.async.} =
     errorBound: dataobj.errorBound
   )
 
+  let headers = {"Content-type": "text/plain; charset=utf-8"}
+  await req.respond(Http200, stream, headers.newHttpHeaders())
+
   let f = calculatePge(data, s.addresses, proc(str: string) =
-    echo str
+    echo ">    ", str
     s.db.add(stream, str)
     )
   f.callback = proc () =
@@ -55,8 +58,7 @@ proc handleSendData(req: Request, s: ServerData) {.async.} =
       else:
         raise f.error
 
-  let headers = {"Content-type": "text/plain; charset=utf-8"}
-  await req.respond(Http200, stream, headers.newHttpHeaders())
+  
 
 const TemplateDir = currentSourcePath() / ".." / "templates"
 const StaticDir = currentSourcePath() / ".." / ".." / ".." / "bin" / "web" / "static"

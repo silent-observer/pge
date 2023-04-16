@@ -1,8 +1,10 @@
 import ir, optimizer, registerallocator, assembler
 import ../expressions, ../variabledata, ../matrix
+import simddata
 import posix
 from strutils import toHex
 import lrucache
+import alignedseq
 
 type
   JitProcedure = proc(vars, params, derivs, result: ptr float64, data: pointer) {.cdecl.}
@@ -10,9 +12,15 @@ type
     codePage: pointer
     length: int
     evalProc, evalAllProc: JitProcedure
-    data: seq[byte]
-    constsPtrShift: int
+    data: AlignedSeq[byte]
   JitProgram* = ref JitProgramObj
+
+const AllowSimd* = true
+
+let simdCapability = if AllowSimd: determineSimdCapability() else: NoCapability
+let simdWidth* = case simdCapability:
+  of NoCapability: 1
+  of Avx: 4
 
 proc `=destroy`*(j: var JitProgramObj) =
   discard munmap(j.codePage, j.length)
@@ -30,8 +38,8 @@ proc compileUncached(e: Expression): JitProgram =
   let 
     p1 = e.convertToIr()
     p2 = p1.optimize()
-    p3Full = p2.allocate()
-    p3OnlyEval = p2.allocateOnlyEval()
+    p3Full = p2.allocate(simdCapability)
+    p3OnlyEval = p2.allocateOnlyEval(simdCapability)
 
   # echo e
   # echo p1
@@ -39,8 +47,8 @@ proc compileUncached(e: Expression): JitProgram =
   # echo p3Full
 
   let
-    codeFull = p3Full.assemble()
-    codeOnlyEval = p3OnlyEval.assemble()
+    codeFull = p3Full.assemble(simdCapability)
+    codeOnlyEval = p3OnlyEval.assemble(simdCapability)
     totalCode = codeOnlyEval.prog & codeFull.prog
 
   # for b in totalCode:
@@ -61,12 +69,7 @@ proc compileUncached(e: Expression): JitProgram =
     cast[int](result.codePage) + codeOnlyEval.prog.len
   )
 
-  result.data = newSeqOfCap[byte](codeFull.data.len + 16)
-  result.data.add codeFull.data
-  result.constsPtrShift = 0
-  while (cast[int](addr result.data[result.constsPtrShift]) and 0xF) != 0:
-    result.data.insert(0'u8, 0)
-    inc result.constsPtrShift
+  result.data = codeFull.data
 
 var cache = newLruCache[SerializedExpr, JitProgram](256)
 proc compile*(e: Expression): JitProgram =
@@ -77,28 +80,49 @@ proc compile*(e: Expression): JitProgram =
     result = e.compileUncached()
     cache[s] = result
 
+when AllowSimd:
+  type
+    JitVariableInput* = SimdSlice
+    JitVectorInput* = SimdVector
+    JitOutput* = SimdVector
+else:
+  type
+    JitVariableInput* = VariableSlice
+    JitVectorInput* = Vector
+    JitOutput* = Number
+
 proc evalAll*(j: JitProgram,
-    vars: VariableSlice,
-    params: Vector,
+    vars: JitVariableInput,
+    params: JitVectorInput,
     paramIndex: int,
-    derivs: var Vector): Number =
+    derivs: var JitVectorInput,
+    result: var JitOutput) =
+  when AllowSimd:
+    let resultAddr = result.getAddr(0)
+  else:
+    let resultAddr = addr result
   j.evalAllProc(
     getAddr vars,
     params.getAddr(paramIndex),
     derivs.getAddr(paramIndex),
-    addr result,
-    unsafeAddr j.data[j.constsPtrShift]
+    resultAddr,
+    unsafeAddr j.data[0]
   )
 proc eval*(j: JitProgram,
-    vars: VariableSlice,
+    vars: JitVariableInput,
     paramIndex: int,
-    params: Vector): Number =
+    params: JitVectorInput,
+    result: var JitOutput) =
+  when AllowSimd:
+    let resultAddr = result.getAddr(0)
+  else:
+    let resultAddr = addr result
   j.evalProc(
     getAddr vars,
     params.getAddr(paramIndex),
     nil,
-    addr result,
-    unsafeAddr j.data[j.constsPtrShift]
+    resultAddr,
+    unsafeAddr j.data[0]
   )
 
 when isMainModule:
@@ -120,42 +144,58 @@ when isMainModule:
   #     )
   #   )
   # )
-  let e = initBigExpr(Sum).withChildren(
-    initBigExpr(Product).nested(
-      initIntPower(10),
-      initVariable(0)
-    ),
-    initBigExpr(Product).nested(
-      initIntPower(9),
-      initVariable(0)
-    ),
-    initBigExpr(Product).nested(
-      initIntPower(5),
-      initVariable(0)
-    ),
-    initBigExpr(Product).nested(
-      initIntPower(3),
-      initVariable(0)
-    ),
-    initBigExpr(Product).nested(
-      initIntPower(2),
-      initVariable(0)
-    ),
-    initBigExpr(Product).nested(
-      initVariable(0)
-    )
+  let e = initUnaryExpr(Sin).nested(
+    initBigExpr(Sum),
+    initBigExpr(Product),
+    initVariable(0)
   )
+  # let e = initBigExpr(Sum).withChildren(
+  #   initBigExpr(Product).nested(
+  #     initIntPower(10),
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).nested(
+  #     initIntPower(9),
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).nested(
+  #     initIntPower(5),
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).nested(
+  #     initIntPower(3),
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).nested(
+  #     initIntPower(2),
+  #     initVariable(0)
+  #   ),
+  #   initBigExpr(Product).nested(
+  #     initVariable(0)
+  #   )
+  # )
   
   echo e
   echo ""
   let j = e.compile()
   let vars = toVariableData(@[
     #@[1.5, 2.0]
-    @[2.0]
-  ])
-  let params = #vector(@[1.0, -1.0, 1.0, 0.1, 1.0])
-    vector(@[1.0, 1.0, 2.0, -0.5, -1.0, 1.0, 2.0])
-  var derivs = vector(7)
-  let r = j.evalAll(vars[0], params, 0, derivs)
+    # @[0.0, 1.0],
+    # @[2.0, 2.0],
+    # @[-1.0, 3.0],
+    # @[-2.0, -1.0],
+    @[0.0],
+    @[1.0],
+    @[2.0],
+    @[3.0]
+  ]).toSimd(simdWidth)
+  echo vars.data[]
+  let params = vector(@[0.0, 1.570796]).toSimd(simdWidth)
+    #vector(@[1.0, 1.0, 2.0, -0.5, -1.0, 1.0, 2.0]).toSimd(simdWidth)
+  var derivs = vector(2).toSimd(simdWidth)
+  echo params.data
+  echo derivs.data
+  var r = initSimdVector(1, simdWidth)
+  j.evalAll(vars[0], params, 0, derivs, r)
   echo r
   echo derivs

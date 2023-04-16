@@ -1,6 +1,8 @@
 import message
 import std/[asyncnet, asyncdispatch, asyncstreams, options]
 import ".."/[variabledata, matrix, varpro, formula]
+from ".."/jit/jit import AllowSimd, simdWidth
+import ".."/jit/simddata
 from os import commandLineParams
 from strutils import parseInt
 
@@ -8,7 +10,10 @@ var queue {.threadvar.}: FutureStream[Message]
 var client {.threadvar.}: AsyncSocket
 
 proc processQueue() {.async.} =
-  var x, xApprox: VariableData
+  when AllowSimd:
+    var x, xApprox: SimdData
+  else:
+    var x, xApprox: VariableData
   var y, yApprox: Vector
   var howMany, howManyApprox: int
   while true:
@@ -26,10 +31,16 @@ proc processQueue() {.async.} =
     else:
       let (xNew, yNew, howManyNew, isApprox) = m.decodeProblemSet()
       if isApprox:
-        (x, y, howMany) = (xNew, yNew, howManyNew)
+        when AllowSimd:
+          (x, y, howMany) = (xNew.toSimd(simdWidth), yNew, howManyNew)
+        else:
+          (x, y, howMany) = (xNew, yNew, howManyNew)
         debugEcho "got approximate data"
       else:
-        (xApprox, yApprox, howManyApprox) = (xNew, yNew, howManyNew)
+        when AllowSimd:
+          (xApprox, yApprox, howManyApprox) = (xNew.toSimd(simdWidth), yNew, howManyNew)
+        else:
+          (xApprox, yApprox, howManyApprox) = (xNew, yNew, howManyNew)
         debugEcho "got exact data"
 
 proc serve(port: uint16) {.async.} =

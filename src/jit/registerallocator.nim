@@ -16,6 +16,7 @@ type Allocator = object
   interLifeEnds: Table[int, int]
   memoryIndex: int
   inters: Table[int, CommandArgument]
+  simd: SimdCapability
 
 func bonusLifetime(c: Command, index: int): int =
   if c.kind in {ckIntPower, ckInv} or
@@ -162,7 +163,7 @@ func allocateForwardResult(a: var Allocator, p: var Program) =
     )
     p.forwardResult = CommandArgument(kind: cakResult)
 
-func fixMemoryArgs(s: var seq[Command]) =
+func fixMemoryArgs(a: Allocator, s: var seq[Command]) =
   var index = 0
   while index < s.len:
     template c: untyped = s[index]
@@ -256,12 +257,13 @@ func forceFixDerivs(s: var seq[Command], derivs: var seq[CommandArgument]) =
         
 
 
-func allocate*(p: Program): Program =
+func allocate*(p: Program, simd: SimdCapability): Program =
   result = p
   var a = Allocator(
     interLifeEnds: initTable[int, int](),
     memoryIndex: 0,
     inters: initTable[int, CommandArgument](),
+    simd: simd
   )
   for i in 0..<RegisterCount:
     a.registers[i] = NoVar
@@ -274,20 +276,21 @@ func allocate*(p: Program): Program =
   a.allocate(result.forward, counter)
   a.allocate(result.backward, counter)
 
-  result.forward.fixMemoryArgs()
-  result.backward.fixMemoryArgs()
+  a.fixMemoryArgs(result.forward)
+  a.fixMemoryArgs(result.backward)
 
   result.forward.fixDerivs(result.derivatives)
   result.backward.fixDerivs(result.derivatives)
   result.backward.forceFixDerivs(result.derivatives)
   result.memorySize = a.memoryIndex
 
-func allocateOnlyEval*(p: Program): Program =
+func allocateOnlyEval*(p: Program, simd: SimdCapability): Program =
   result = p
   var a = Allocator(
     interLifeEnds: initTable[int, int](),
     memoryIndex: 0,
     inters: initTable[int, CommandArgument](),
+    simd: simd
   )
   for i in 0..<RegisterCount:
     a.registers[i] = NoVar
@@ -299,7 +302,7 @@ func allocateOnlyEval*(p: Program): Program =
   var counter = 0
   a.allocate(result.forward, counter)
 
-  result.forward.fixMemoryArgs()
+  a.fixMemoryArgs(result.forward)
   result.memorySize = a.memoryIndex
   result.backward.setLen 0
   result.derivatives.setLen 0
@@ -348,7 +351,7 @@ when isMainModule:
   echo p2
   echo ""
   echo ""
-  let p3 = p2.allocate()
+  let p3 = p2.allocate(NoCapability)
   echo p3
   echo ""
   echo ""

@@ -11,6 +11,7 @@ window.onload = proc(_: Event) =
       for l in xdataStr.splitLines:
         collect:
           for n in l.split({' ', '\t'}):
+            console.log($n)
             parseFloat($n).float64
     let ydata = collect:
       for n in ydataStr.split({' ', '\t'}):

@@ -12,10 +12,13 @@ import network/evalclient
 import asyncdispatch
 import options
 
+from jit/jit import AllowSimd, simdWidth
+import jit/simddata
+
 from os import commandLineParams
 from strutils import parseInt, split, parseFloat
 
-const VarCount = 1
+const VarCount = 2
 
 type Data* = object
   trainX*, approxX*: VariableData
@@ -45,30 +48,30 @@ proc generateData(): Data =
   result.approxY = vector(PeekN)
   # result.errorBound = 0.1
   for i in 0..<N:
-    let x = rand(1.0..3.0).Number
+    let x = rand(-3.0..3.0).Number
     let y = rand(-3.0..3.0).Number
     # let y = exp(rand(-2.0..2.0).Number)
     # let z = rand(1.0..4.0).Number
     # let w = rand(1.0..4.0).Number
-    let err = gauss(sigma=0.01).Number
+    let err = gauss(sigma=0.001).Number
     # let f = x.pow(2) + y.pow(2) - 2 * x * y + 0.5 * x - 1.5 * y + 3
     #let f = exp(x) - 0.5 * exp(-0.5 * x)
-    # let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0 + err
+    let f = -x + y/(x.pow(2) + y.pow(2) + 0.1) + 1.0 # + err
     # let f = x/y + err
     # let f = ln(x)
     # let f = 1/(1/x + y/z)
     # let f = exp(-x*x/(2*y))/sqrt(2*PI*y)
     #let f = arctan2(y, x)
     # let f = sin(x) + sin(y*y)
-    let f = exp(-x) * sin(PI/4 + 2*PI*x) + err#sqrt(x*x + y*y)
+    # let f = exp(-x) * sin(PI/4 + 2*PI*x) + err#sqrt(x*x + y*y)
     #let f = exp(0.3 * x + 0.2 * y) + exp(0.3 * y) - 0.5
     # let f = x*y*y + exp(x)/((1+w))
     #let f = exp(-0.2*x)*sin(5*x) + x*y
-    result.trainX.add @[x]
+    result.trainX.add @[x, y]
     result.trainY[i] = f
     if result.approxX.rows < PeekN:
       result.approxY[result.approxX.rows] = f
-      result.approxX.add @[x]
+      result.approxX.add @[x, y]
 
 var exprSet = newTrie[TotalKinds + VarCount]()
 var mainQueue, approxQueue: ParetoPriorityQueue
@@ -110,7 +113,7 @@ var expectedError = 1e-7
 
 proc fullEval(f: LinearFormula) =
   let s = f.serialized()
-  let t = f.fitParams(dataArray[false][0], dataArray[false][1],
+  let t = f.fitParams(dataArray[false][0].toSimd(simdWidth), dataArray[false][1],
       100, earlyStop=false, stepsMax=200)
   let text =
     if t.error > 1e9: $f
@@ -142,7 +145,7 @@ proc approxTree(f: LinearFormula) {.async.} =
   when RemoteEvaluation:
     let t = await f.fitParamsRemote(isApprox=true)
   else:
-    let t = f.fitParams(dataArray[true][0], dataArray[true][1], dataArray[true][2])
+    let t = f.fitParams(dataArray[true][0].toSimd(simdWidth), dataArray[true][1], dataArray[true][2])
   let comp = s.complexity()
   approxQueue.add f, t.error, comp
 
@@ -164,7 +167,7 @@ proc handleTree(f: LinearFormula) {.async.} =
   when RemoteEvaluation:
     let t = await f.fitParamsRemote(isApprox=false)
   else:
-    let t = f.fitParams(dataArray[false][0], dataArray[false][1], dataArray[false][2])
+    let t = f.fitParams(dataArray[false][0].toSimd(simdWidth), dataArray[false][1], dataArray[false][2])
     # await sleepAsync(1000)
 
   # echo t.linearParams
@@ -324,8 +327,8 @@ Complexity: {n.complexity}"""
         checkSuddenDrop()
 
 when isMainModule:
-  # let data = generateData()
-  let data = readData("erlang_a5b4.txt")
+  let data = generateData()
+  # let data = readData("fullab_225.txt")
   # let file = openFileStream("data.txt", fmWrite)
   # for i in 0..<100:
   #   file.writeLine data.trainX[i][0], "\t", data.trainX[i][1]

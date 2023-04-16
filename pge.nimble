@@ -7,7 +7,7 @@ description   = "Prioritized Grammar Evaluation curve fitter (symbolic regressio
 license       = "MIT"
 srcDir        = "src"
 binDir        = "bin"
-bin           = @["pge", "network/evalserver"]
+bin           = @["pge", "network/evalserver", "web/webserver"]
 
 
 # Dependencies
@@ -17,6 +17,7 @@ requires "nimlapack"
 requires "nimblas"
 requires "lrucache"
 requires "nimja"
+requires "cpuwhat"
 
 task buildJS, "Builds the JS side":
   requires "ajax"

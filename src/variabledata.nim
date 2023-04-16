@@ -14,7 +14,7 @@ func initVariableData*(varCount: int): VariableData =
   result.rows = 0
   new(result.data)
 
-func add*(d: var VariableData, row: seq[Number]) =
+func add*(d: var VariableData, row: openArray[Number]) =
   assert row.len == d.varCount, "Row length doesn't match!"
   d.data[].add row
   inc d.rows
